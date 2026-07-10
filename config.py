@@ -1,0 +1,10 @@
+import os
+
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
+PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+WABA_ID = os.getenv("WABA_ID")
+WS_SECRET = os.getenv("WS_SECRET")
+JWT_SECRET = os.getenv("JWT_SECRET")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM")
+CRM_JWT_ISSUER = os.getenv("CRM_JWT_ISSUER")
+CRM_JWT_PUBLIC_KEY = os.getenv("CRM_JWT_PUBLIC_KEY")
