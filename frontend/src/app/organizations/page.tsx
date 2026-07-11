@@ -12,11 +12,11 @@ import { getDashboardSummary } from "../../services/dashboardService";
 import { FaPlus, FaEye, FaEdit, FaTrash, FaSearch, FaBuilding, FaCheckCircle, FaUsers, FaBullhorn } from "react-icons/fa";
 
 export default function OrganizationsPage() {
-  const [organizations, setOrganizations] = useState([]);
+  const [organizations, setOrganizations] = useState<any[]>([]);
   const [filters, setFilters] = useState({ q: "", status: "all", sort: "newest" });
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState("add");
-  const [selectedOrg, setSelectedOrg] = useState(null);
+  const [selectedOrg, setSelectedOrg] = useState<any>(null);
   const [formData, setFormData] = useState({ name: "", email: "", industry: "", status: "Active" });
   const [summary, setSummary] = useState({ total_contacts: 0, total_campaigns: 0 });
   const [loading, setLoading] = useState(true);
@@ -79,7 +79,7 @@ export default function OrganizationsPage() {
     setShowModal(true);
   };
 
-  const openViewModal = async (id) => {
+  const openViewModal = async (id: any) => {
     try {
       const org = await getOrganization(id);
       setModalMode("view");
@@ -96,7 +96,7 @@ export default function OrganizationsPage() {
     }
   };
 
-  const openEditModal = async (id) => {
+  const openEditModal = async (id: any) => {
     try {
       const org = await getOrganization(id);
       setModalMode("edit");
@@ -129,7 +129,7 @@ export default function OrganizationsPage() {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: any) => {
     if (!confirm("Delete organization?")) return;
     try {
       await deleteOrganization(id);
@@ -275,7 +275,7 @@ export default function OrganizationsPage() {
                       <td className="px-6 py-5 align-top">
                         <div className="flex items-center gap-3">
                           <div className="h-12 w-12 rounded-full bg-emerald-500 text-white flex items-center justify-center font-semibold shadow-sm text-sm">
-                            {org.name?.split(" ").map((part) => part[0]).slice(0, 2).join("")}
+                            {org.name?.split(" ").map((part: string) => part[0]).slice(0, 2).join("")}
                           </div>
                           <div>
                             <div className="font-semibold text-slate-900">{org.name}</div>

@@ -11,7 +11,7 @@ import {
 } from "../../services/contactService";
 import { getOrganizations } from "../../services/organizationService";
 
-const StatCard = ({ icon, title, value, delta }) => (
+const StatCard = ({ icon, title, value, delta }: { icon: any, title: any, value: any, delta: any }) => (
   <div className="bg-white rounded-lg p-4 shadow-sm w-full md:w-1/4">
     <div className="flex items-center gap-4">
       <div className="h-14 w-14 rounded-full bg-green-50 flex items-center justify-center">
@@ -27,14 +27,14 @@ const StatCard = ({ icon, title, value, delta }) => (
 );
 
 export default function ContactsPage() {
-  const [contacts, setContacts] = useState([]);
-  const [organizations, setOrganizations] = useState([]);
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [organizations, setOrganizations] = useState<any[]>([]);
   const [filters, setFilters] = useState({ organization_id: "all", status: "all" });
   const [showModal, setShowModal] = useState(false);
-  const [editingIndex, setEditingIndex] = useState(null);
-  const [viewContact, setViewContact] = useState(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [viewContact, setViewContact] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const fileInputRef = useRef(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadOrganizations = useCallback(async () => {
     try {
@@ -53,7 +53,7 @@ export default function ContactsPage() {
         status: filters.status,
       });
 
-      const formattedContacts = data.map((contact) => ({
+      const formattedContacts = data.map((contact: any) => ({
         id: contact.id,
         name: contact.name,
         email: contact.email || "",
@@ -132,7 +132,7 @@ export default function ContactsPage() {
 
     setShowModal(false);
   };
-  const handleDeleteContact = async (id) => {
+  const handleDeleteContact = async (id: any) => {
     try {
       await deleteContactApi(id);
 
@@ -143,17 +143,17 @@ export default function ContactsPage() {
       alert("Failed to delete contact");
     }
   };
-  const handleEditContact = (index) => {
+  const handleEditContact = (index: number) => {
     setNewContact(contacts[index]);
     setEditingIndex(index);
     setShowModal(true);
   };
 
-  const handleViewContact = (contact) => {
+  const handleViewContact = (contact: any) => {
     setViewContact(contact);
   };
 
-  const handleImportContacts = async (event) => {
+  const handleImportContacts = async (event: any) => {
     const file = event.target.files[0];
 
     if (!file) return;
@@ -257,7 +257,7 @@ export default function ContactsPage() {
               <FaFilter /> Filter
             </button>
             <button
-              onClick={() => fileInputRef.current.click()}
+              onClick={() => fileInputRef.current?.click()}
               className="inline-flex items-center gap-2 rounded-full bg-[#25D366] px-4 py-3 text-sm font-semibold text-white shadow-sm"
             >
               <FaPlus /> Import
@@ -296,7 +296,7 @@ export default function ContactsPage() {
                       <div className="h-12 w-12 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-semibold text-sm shadow-sm">
                         {contact.name
                           .split(" ")
-                          .map((part) => part[0])
+                          .map((part: string) => part[0])
                           .slice(0, 2)
                           .join("")}
                       </div>

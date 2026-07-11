@@ -15,8 +15,8 @@ import {
 import { getOrganizations } from "../../services/organizationService";
 export default function TemplatesPage() {
   console.log("TEMPLATES PAGE LOADED");
-  const [templates, setTemplates] = useState([]);
-  const [recentActivities, setRecentActivities] = useState([]);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [filterStatus, setFilterStatus] = useState("all");
   const [notification, setNotification] = useState({ type: "", message: "" });
   const [isLoading, setIsLoading] = useState(false);
@@ -32,12 +32,13 @@ export default function TemplatesPage() {
     header: "none",
     template_body: "",
     footer: "",
-    buttons: [],
+    buttons: [] as any[],
     organization_id: 1,
+    header_url: null as string | null,
   });
-  const [organizations, setOrganizations] = useState([]);
-  const [headerFile, setHeaderFile] = useState(null);
-  const [headerPreviewUrl, setHeaderPreviewUrl] = useState(null);
+  const [organizations, setOrganizations] = useState<any[]>([]);
+  const [headerFile, setHeaderFile] = useState<File | null>(null);
+  const [headerPreviewUrl, setHeaderPreviewUrl] = useState<string | null>(null);
 
   const loadOrganizations = async () => {
     try {
@@ -105,7 +106,7 @@ export default function TemplatesPage() {
     };
   }, []);
 
-  const showNotification = (type, message) => {
+  const showNotification = (type: any, message: any) => {
     setNotification({ type, message });
     setTimeout(() => {
       setNotification({ type: "", message: "" });
@@ -144,7 +145,7 @@ export default function TemplatesPage() {
           formData.append("header", templateData.header);
           formData.append("template_body", templateData.template_body);
           if (templateData.footer) formData.append("footer", templateData.footer);
-          formData.append("organization_id", templateData.organization_id);
+          formData.append("organization_id", String(templateData.organization_id));
           formData.append("buttons", JSON.stringify(templateData.buttons || []));
           formData.append("file", headerFile);
 
@@ -162,8 +163,9 @@ export default function TemplatesPage() {
         header: "none",
         template_body: "",
         footer: "",
-        buttons: [],
+        buttons: [] as any[],
         organization_id: 1,
+    header_url: null as string | null,
       });
 
       setHeaderFile(null);
@@ -177,14 +179,14 @@ export default function TemplatesPage() {
       console.error(error);
       showNotification(
         "error",
-        error.message || "Failed to save template. Please try again."
+        ((error as Error).message) || "Failed to save template. Please try again."
       );
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleEditTemplate = (template) => {
+  const handleEditTemplate = (template: any) => {
     setTemplateData({
       template_name: template.template_name,
       category: template.category,
@@ -205,7 +207,7 @@ export default function TemplatesPage() {
   };  
   
 
-  const handleDeleteTemplate = async (id) => {
+  const handleDeleteTemplate = async (id: any) => {
     if (!confirm("Are you sure you want to delete this template?")) {
       return;
     }
@@ -219,12 +221,12 @@ export default function TemplatesPage() {
       console.error(error);
       showNotification(
         "error",
-        error.message || "Failed to delete template. Please try again."
+        ((error as Error).message) || "Failed to delete template. Please try again."
       );
     }
   };
 
-  const handleSyncStatus = async (id) => {
+  const handleSyncStatus = async (id: any) => {
     try {
       const result = await syncTemplateStatus(id);
       if (result.success) {
@@ -241,7 +243,7 @@ export default function TemplatesPage() {
       console.error(error);
       showNotification(
         "error",
-        error.message || "Failed to sync template status. Please try again."
+        ((error as Error).message) || "Failed to sync template status. Please try again."
       );
     }
   };
@@ -298,25 +300,25 @@ export default function TemplatesPage() {
           title="Total Templates"
           value={stats.total}
           icon="📋"
-          growth="8.3% from last month"
+          change="8.3% from last month"
         />
         <StatsCard
           title="Approved"
           value={stats.approved}
           icon="✓"
-          growth="10.2% from last month"
+          change="10.2% from last month"
         />
         <StatsCard
           title="Pending"
           value={stats.pending}
           icon="⏳"
-          growth="12.5% from last month"
+          change="12.5% from last month"
         />
         <StatsCard
           title="Rejected"
           value={stats.rejected}
           icon="✕"
-          growth="5.1% from last month"
+          change="5.1% from last month"
         />
       </div>
 
@@ -385,7 +387,7 @@ export default function TemplatesPage() {
               <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan="6" className="py-8 text-center text-gray-500">
+                  <td colSpan={6} className="py-8 text-center text-gray-500">
                     <div className="flex items-center justify-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-500 mr-3"></div>
                       Loading templates...
@@ -445,7 +447,7 @@ export default function TemplatesPage() {
               ))
               ) : (
                 <tr>
-                  <td colSpan="6" className="py-8 text-center text-gray-500">
+                  <td colSpan={6} className="py-8 text-center text-gray-500">
                     No templates found for this filter.
                   </td>
                 </tr>
@@ -646,7 +648,7 @@ export default function TemplatesPage() {
                 <div>
                   <label className="block text-sm font-semibold mb-2">Body Text</label>
                   <textarea
-                    rows="6"
+                    rows={6}
                     placeholder="Type your template message here..."
                     value={templateData.template_body}
                     onChange={(e) =>
@@ -665,7 +667,7 @@ export default function TemplatesPage() {
                     type="text"
                     placeholder="Optional footer text (max 60 chars)"
                     value={templateData.footer}
-                    maxLength="60"
+                    maxLength={60}
                     onChange={(e) =>
                       setTemplateData({
                         ...templateData,
@@ -699,7 +701,7 @@ export default function TemplatesPage() {
                         <input
                           type="text"
                           placeholder="Button label"
-                          maxLength="20"
+                          maxLength={20}
                           value={btn.text}
                           onChange={(e) => {
                             const newButtons = [...templateData.buttons];
@@ -763,7 +765,7 @@ export default function TemplatesPage() {
                           <div className="relative h-28 w-full">
                             <Image
                               loader={({ src }) => src}
-                              src={headerPreviewUrl || templateData.header_url}
+                              src={headerPreviewUrl || templateData.header_url || ""}
                               alt="header"
                               fill
                               className="object-contain"
@@ -772,15 +774,15 @@ export default function TemplatesPage() {
                           </div>
                         ) : templateData.header === "video" && (headerPreviewUrl || templateData.header_url) ? (
                           <video controls className="max-h-28">
-                            <source src={headerPreviewUrl || templateData.header_url} type="video/mp4" />
+                            <source src={headerPreviewUrl || templateData.header_url || ""} type="video/mp4" />
                             Your browser does not support the video tag.
                           </video>
                         ) : templateData.header === "document" && (headerPreviewUrl || templateData.header_url) ? (
                           // For documents, if it's a PDF show embed, otherwise show filename/link
-                          (headerPreviewUrl || templateData.header_url).endsWith('.pdf') ? (
-                            <iframe src={headerPreviewUrl || templateData.header_url} className="w-full h-28" />
+                          (headerPreviewUrl || templateData.header_url || '').endsWith('.pdf') ? (
+                            <iframe src={headerPreviewUrl || templateData.header_url || ""} className="w-full h-28" />
                           ) : (
-                            <a href={headerPreviewUrl || templateData.header_url} target="_blank" rel="noreferrer" className="text-sm text-blue-600">Open Document</a>
+                            <a href={headerPreviewUrl || templateData.header_url || ""} target="_blank" rel="noreferrer" className="text-sm text-blue-600">Open Document</a>
                           )
                         ) : (
                           <div className="text-sm text-gray-600">[{templateData.header.toUpperCase()}]</div>

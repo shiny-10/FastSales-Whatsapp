@@ -1,0 +1,10 @@
+{
+  "/api/link-preview/route": "app/api/link-preview/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/page": "app/page.js",
+  "/inbox/page": "app/inbox/page.js",
+  "/settings/auto-replies/page": "app/settings/auto-replies/page.js",
+  "/settings/broadcasts/page": "app/settings/broadcasts/page.js",
+  "/settings/chatbot/page": "app/settings/chatbot/page.js",
+  "/settings/whatsapp/page": "app/settings/whatsapp/page.js"
+}

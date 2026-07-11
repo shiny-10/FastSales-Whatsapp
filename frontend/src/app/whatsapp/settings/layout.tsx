@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 
-export default function WhatsAppSettingsLayout({ children }) {
+export default function WhatsAppSettingsLayout({ children }: { children: ReactNode }) {
   return (
     <div>
       {children}

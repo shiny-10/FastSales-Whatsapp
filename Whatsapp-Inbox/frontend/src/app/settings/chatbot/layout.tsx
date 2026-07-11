@@ -1,0 +1,10 @@
+"use client";
+import { AppShell } from "@/components/layout/AppShell";
+
+export default function ChatbotLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <AppShell>
+      <div className="min-h-screen overflow-y-auto bg-gray-50 dark:bg-gray-950">{children}</div>
+    </AppShell>
+  );
+}

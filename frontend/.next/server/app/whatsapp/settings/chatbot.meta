@@ -1,0 +1,17 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/whatsapp/layout,_N_T_/whatsapp/settings/layout,_N_T_/whatsapp/settings/chatbot/layout,_N_T_/whatsapp/settings/chatbot/page,_N_T_/whatsapp/settings/chatbot"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/whatsapp/settings/chatbot/__PAGE__",
+    "/whatsapp/settings/chatbot",
+    "/whatsapp/settings",
+    "/whatsapp",
+    "/_index",
+    "/_head"
+  ]
+}

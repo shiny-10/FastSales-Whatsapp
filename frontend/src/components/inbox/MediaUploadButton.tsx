@@ -11,6 +11,7 @@ import type { Message } from "@/lib/types";
 interface MediaUploadButtonProps {
   conversationId: string;
   onSent?: (message: Message) => void;
+  onPreview?: (type: MediaCategory) => void;
 }
 
 type MediaCategory = "image" | "video" | "audio" | "document";
@@ -29,7 +30,7 @@ const MENU_ITEMS: Array<{ type: MediaCategory; icon: React.ReactNode; label: str
   { type: "document", icon: <FileText className="h-4 w-4" />, label: "Document" },
 ];
 
-export function MediaUploadButton({ conversationId, onSent }: MediaUploadButtonProps) {
+export function MediaUploadButton({ conversationId, onSent, onPreview }: MediaUploadButtonProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [pendingType, setPendingType] = useState<MediaCategory | null>(null);
@@ -38,6 +39,7 @@ export function MediaUploadButton({ conversationId, onSent }: MediaUploadButtonP
   const triggerFilePicker = (type: MediaCategory) => {
     setPendingType(type);
     setOpen(false);
+    onPreview?.(type);
     // Small delay so popover closes before dialog opens
     setTimeout(() => fileInputRef.current?.click(), 80);
   };

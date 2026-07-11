@@ -1,0 +1,16 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/whatsapp/layout,_N_T_/whatsapp/inbox/layout,_N_T_/whatsapp/inbox/page,_N_T_/whatsapp/inbox"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/whatsapp/inbox/__PAGE__",
+    "/whatsapp/inbox",
+    "/whatsapp",
+    "/_index",
+    "/_head"
+  ]
+}

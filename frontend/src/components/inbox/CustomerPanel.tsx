@@ -44,7 +44,7 @@ export function CustomerPanel({ conversation }: CustomerPanelProps) {
     setEditingName(false);
     const trimmed = name.trim();
     if (trimmed === (conversation.customer_name ?? "")) return;
-    await updateConv({ id: conversation.id, customer_name: trimmed || null });
+    await updateConv({ id: conversation.id, customer_name: trimmed || undefined });
   };
 
   const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

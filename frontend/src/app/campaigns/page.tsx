@@ -185,7 +185,7 @@ const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
     const handleUpdateCampaign = async () => {
       try {
-        const result = await updateCampaign(editCampaignData.id, {
+        const result = await updateCampaign(editCampaignData.id as number, {
           campaign_name: editCampaignData.campaign_name,
           template_id: editCampaignData.template_id,
           contact_ids: editCampaignData.contact_ids,
@@ -345,7 +345,7 @@ const [campaigns, setCampaigns] = useState<Campaign[]>([]);
                     onChange={(e) =>
                       setCampaignData({
                         ...campaignData,
-                        organization_id: Number(e.target.value),
+                        organization_id: e.target.value,
                       })
                     }
                     className="w-full border rounded-lg px-4 py-3"
@@ -364,7 +364,7 @@ const [campaigns, setCampaigns] = useState<Campaign[]>([]);
                     onChange={(e) =>
                       setCampaignData({
                         ...campaignData,
-                        template_id: Number(e.target.value),
+                        template_id: e.target.value,
                       })
                     }
                     className="w-full border rounded-lg px-4 py-3"
@@ -465,7 +465,7 @@ const [campaigns, setCampaigns] = useState<Campaign[]>([]);
                   onChange={(e) =>
                     setEditCampaignData({
                       ...editCampaignData,
-                      template_id: Number(e.target.value),
+                      template_id: e.target.value,
                     })
                   }
                   className="w-full border rounded-lg px-4 py-3"

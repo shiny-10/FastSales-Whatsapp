@@ -129,7 +129,7 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
     setEditingName(false);
     const trimmed = nameValue.trim();
     if (trimmed === (conversation?.customer_name ?? "")) return;
-    await updateConv({ id: conversationId, customer_name: trimmed || null });
+    await updateConv({ id: conversationId, customer_name: trimmed || undefined });
   };
 
   const handleNameKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

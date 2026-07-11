@@ -6,10 +6,14 @@ import { getTemplates } from "../../services/templateService";
 import { sendMessage } from "../../services/whatsappService";
 import { listCampaigns, runCampaign } from "../../services/campaignService";
 
+type ContactItem = { id?: number; name?: string; phone_number?: string };
+type TemplateItem = { id?: number; template_name?: string; status?: string; meta_status?: string };
+type CampaignItem = { id?: number; campaign_name?: string; contact_count?: number; template_name?: string };
+
 export default function WhatsAppPage() {
-  const [contacts, setContacts] = useState([]);
-  const [templates, setTemplates] = useState([]);
-  const [campaigns, setCampaigns] = useState([]);
+  const [contacts, setContacts] = useState<ContactItem[]>([]);
+  const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
   const [selectedContact, setSelectedContact] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [selectedCampaign, setSelectedCampaign] = useState("");
@@ -91,7 +95,8 @@ export default function WhatsAppPage() {
     } catch (error) {
       console.error(error);
       setStatusMessageType("error");
-      setStatusMessage(error.message || "Message send failed.");
+      const message = error instanceof Error ? error.message : "Message send failed.";
+      setStatusMessage(message);
     } finally {
       setIsSending(false);
     }
@@ -111,7 +116,8 @@ export default function WhatsAppPage() {
 
     setIsCampaignSending(true);
     try {
-      const result = await runCampaign(parseInt(selectedCampaign), campaign.template_name);
+      const templateName = campaign.template_name || "";
+      const result = await runCampaign(parseInt(selectedCampaign), templateName);
 
       if (result.success === false) {
         setCampaignStatusType("error");
@@ -125,7 +131,8 @@ export default function WhatsAppPage() {
     } catch (error) {
       console.error(error);
       setCampaignStatusType("error");
-      setCampaignStatusMessage(error.message || "Campaign send failed.");
+      const message = error instanceof Error ? error.message : "Campaign send failed.";
+      setCampaignStatusMessage(message);
     } finally {
       setIsCampaignSending(false);
     }

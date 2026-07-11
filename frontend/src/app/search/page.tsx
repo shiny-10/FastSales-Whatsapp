@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-export default function SearchPage({ searchParams }) {
+export default function SearchPage({ searchParams }: { searchParams: any }) {
   const q = (searchParams && searchParams.q) || "";
 
   return (

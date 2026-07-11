@@ -17,11 +17,11 @@ interface Activity {
 }
 
 interface InboxPanelProps {
-  activities: Activity[];
+  activities?: Activity[];
 }
 
 export default function InboxPanel({
-  activities,
+  activities = [],
 }: InboxPanelProps) {
   return (
     <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">

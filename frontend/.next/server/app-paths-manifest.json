@@ -1,0 +1,19 @@
+{
+  "/_global-error/page": "app/_global-error/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/activity/page": "app/activity/page.js",
+  "/campaigns/page": "app/campaigns/page.js",
+  "/contacts/page": "app/contacts/page.js",
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/organizations/page": "app/organizations/page.js",
+  "/page": "app/page.js",
+  "/reports/page": "app/reports/page.js",
+  "/search/page": "app/search/page.js",
+  "/templates/page": "app/templates/page.js",
+  "/test-inbox/page": "app/test-inbox/page.js",
+  "/whatsapp/inbox/page": "app/whatsapp/inbox/page.js",
+  "/whatsapp/page": "app/whatsapp/page.js",
+  "/whatsapp/settings/auto-replies/page": "app/whatsapp/settings/auto-replies/page.js",
+  "/whatsapp/settings/chatbot/page": "app/whatsapp/settings/chatbot/page.js",
+  "/whatsapp/settings/page": "app/whatsapp/settings/page.js"
+}

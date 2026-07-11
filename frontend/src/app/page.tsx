@@ -136,10 +136,10 @@ export default function Home() {
 
       {/* Top Cards */}
       <div className="grid grid-cols-4 gap-6">
-        <StatsCard title="Total Contacts" value={summary.total_contacts} icon={<FaUsers />} growth="12.5% from last month" />
-        <StatsCard title="Total Templates" value={summary.total_templates} icon={<FaFileAlt />} growth="8.3% from last month" />
-        <StatsCard title="Total Campaigns" value={summary.total_campaigns} icon={<FaBullhorn />} growth="14.7% from last month" />
-        <StatsCard title="Messages Sent" value={summary.total_messages} icon={<FaWhatsapp />} growth="18.6% from last month" />
+        <StatsCard title="Total Contacts" value={summary.total_contacts} icon={<FaUsers />} change="12.5% from last month" />
+        <StatsCard title="Total Templates" value={summary.total_templates} icon={<FaFileAlt />} change="8.3% from last month" />
+        <StatsCard title="Total Campaigns" value={summary.total_campaigns} icon={<FaBullhorn />} change="14.7% from last month" />
+        <StatsCard title="Messages Sent" value={summary.total_messages} icon={<FaWhatsapp />} change="18.6% from last month" />
       </div>
 
       {/* Middle Section */}
