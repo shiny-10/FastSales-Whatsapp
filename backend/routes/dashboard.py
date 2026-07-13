@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from database.db import SessionLocal
+from core.database import SessionLocal
 from models.postgres_model import Campaign, CampaignContact, CampaignRecipient, Contact, MessageLog, Template
 
 router = APIRouter()
@@ -27,7 +27,6 @@ def get_overview():
         "read": read,
         "failed": failed
     }
-
 
 # -----------------------------
 # 2. CAMPAIGN LIST
@@ -67,7 +66,6 @@ def get_campaigns():
     db.close()
     return result
 
-
 # -----------------------------
 # 3. CAMPAIGN DETAILS
 # -----------------------------
@@ -89,7 +87,6 @@ def campaign_details(campaign_id: int):
         }
         for r in recipients
     ]
-
 
 # -----------------------------
 # 4. MESSAGE ANALYTICS

@@ -1,10 +1,9 @@
-from database.db import SessionLocal
+from core.database import SessionLocal
 from models.postgres_model import Contact, Organization
 from fastapi import APIRouter, Query, UploadFile, File
 import pandas as pd
 
 router = APIRouter()
-
 
 @router.post("/create")
 def create_contact(data: dict):
@@ -30,7 +29,6 @@ def create_contact(data: dict):
         "success": True,
         "contact_id": contact.id,
     }
-
 
 @router.get("/")
 def get_contacts(q: str = None, organization_id: int = None, status: str = None):
@@ -102,7 +100,6 @@ def update_contact(contact_id: int, data: dict):
         "success": True,
         "message": "Contact updated",
     }
-
 
 @router.delete("/{contact_id}")
 def delete_contact(contact_id: int):

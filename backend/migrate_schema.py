@@ -1,5 +1,5 @@
 from sqlalchemy import text
-from database.db import engine
+from core.database import engine
 
 STATEMENTS = [
     (

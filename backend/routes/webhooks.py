@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Request
-from database.db import SessionLocal
+from core.database import SessionLocal
 from models.postgres_model import CampaignRecipient, MessageLog
 from fastapi.responses import PlainTextResponse
 
 router = APIRouter()
-
 
 @router.get("/webhook")
 async def verify_webhook(

@@ -1,9 +1,8 @@
 from fastapi import APIRouter
-from database.db import SessionLocal
+from core.database import SessionLocal
 from models.postgres_model import Contact
 
 router = APIRouter()
-
 
 @router.post("/create")
 def create_contact(data: dict):
@@ -27,7 +26,6 @@ def create_contact(data: dict):
         "success": True,
         "contact_id": contact.id
     }
-
 
 @router.get("/")
 def get_contacts():
@@ -76,7 +74,6 @@ def get_contact(contact_id: int):
     db.close()
 
     return result
-
 
 @router.put("/{contact_id}")
 def update_contact(contact_id: int, data: dict):

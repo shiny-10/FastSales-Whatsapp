@@ -1,9 +1,10 @@
+from core.config import settings
 from fastapi import APIRouter
 from fastapi import Body, Request
 from pydantic import BaseModel
 from services.meta_service import MetaWhatsAppService
-from config import ACCESS_TOKEN, PHONE_NUMBER_ID
-from database.db import SessionLocal
+
+from core.database import SessionLocal
 from models.postgres_model import Contact, Conversation, ConversationMessage, MessageLog
 from datetime import datetime
 import asyncio
@@ -16,8 +17,8 @@ class MessageRequest(BaseModel):
     template_name: str
 
 meta_service = MetaWhatsAppService(
-    ACCESS_TOKEN,
-    PHONE_NUMBER_ID
+    settings.ACCESS_TOKEN,
+    settings.PHONE_NUMBER_ID
 )
 
 @router.post("/send")
@@ -116,7 +117,6 @@ def send_message(data: MessageRequest, request: Request):
     finally:
         db.close()
 
-
 @router.get("/info")
 def get_whatsapp_info():
     result = meta_service.get_phone_number_info()
@@ -132,13 +132,12 @@ def get_whatsapp_info():
         "phone_number_id": meta_service.phone_number_id
     }
 
-
 @router.get("/settings")
 def get_whatsapp_settings():
     # log incoming request info for debugging
     print("GET /api/whatsapp/settings called")
     # Build default settings and merge persisted values from DB if any
-    from database.db import SessionLocal
+    from core.database import SessionLocal
     from models.postgres_model import WhatsAppSettings
 
     settings = _build_settings()
@@ -160,13 +159,12 @@ def get_whatsapp_settings():
 
     return {"success": True, "settings": settings}
 
-
 def _build_settings():
     # Aggregate WhatsApp configuration and stats for frontend settings view
     result = meta_service.get_phone_number_info()
 
     # compute message usage in last 24 hours
-    from database.db import SessionLocal
+    from core.database import SessionLocal
     from models.postgres_model import MessageLog
     from datetime import datetime, timedelta
 
@@ -203,12 +201,11 @@ def _build_settings():
 
     return settings
 
-
 @router.put("/settings")
 def update_whatsapp_settings(payload: dict = Body(...)):
     print("PUT /api/whatsapp/settings called with payload keys:", list(payload.keys()))
     # Persist partial updates to the whatsapp_settings table
-    from database.db import SessionLocal
+    from core.database import SessionLocal
     from models.postgres_model import WhatsAppSettings
     db = SessionLocal()
     try:
@@ -238,22 +235,19 @@ def update_whatsapp_settings(payload: dict = Body(...)):
     finally:
         db.close()
 
-
 @router.post("/actions/rotate-token")
 def rotate_token():
     # Placeholder - rotation requires administrative steps
     return {"success": True, "message": "Token rotated (placeholder)"}
-
 
 @router.post("/actions/disconnect")
 def disconnect_account():
     # Placeholder for disconnecting Meta account
     return {"success": True, "message": "Disconnected (placeholder)"}
 
-
 @router.get("/activity-logs")
 def get_activity_logs(limit: int = 25):
-    from database.db import SessionLocal
+    from core.database import SessionLocal
     from models.postgres_model import MessageLog
 
     db = SessionLocal()

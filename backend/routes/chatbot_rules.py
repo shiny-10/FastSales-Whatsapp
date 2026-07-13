@@ -1,11 +1,10 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Any
-from database.db import SessionLocal
+from core.database import SessionLocal
 from models.postgres_model import ChatbotRule
 
 router = APIRouter()
-
 
 class ChatbotRuleCreate(BaseModel):
     name: str
@@ -13,7 +12,6 @@ class ChatbotRuleCreate(BaseModel):
     actions: Optional[Any] = None
     priority: Optional[int] = 100
     active: Optional[bool] = True
-
 
 @router.get("/settings/chatbot-rules")
 def list_chatbot_rules():
@@ -35,7 +33,6 @@ def list_chatbot_rules():
     finally:
         db.close()
 
-
 @router.post("/settings/chatbot-rules")
 def create_chatbot_rule(payload: ChatbotRuleCreate):
     db = SessionLocal()
@@ -54,7 +51,6 @@ def create_chatbot_rule(payload: ChatbotRuleCreate):
     finally:
         db.close()
 
-
 @router.patch("/settings/chatbot-rules/{item_id}")
 def update_chatbot_rule(item_id: int, payload: dict):
     db = SessionLocal()
@@ -70,7 +66,6 @@ def update_chatbot_rule(item_id: int, payload: dict):
         return {"success": True, "chatbot_rule": {"id": item.id}}
     finally:
         db.close()
-
 
 @router.delete("/settings/chatbot-rules/{item_id}")
 def delete_chatbot_rule(item_id: int):
