@@ -9,7 +9,7 @@ import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from services.conversation_service import ConversationRepository
+from sqlalchemy.orm import Session
 from services.whatsapp_service import WhatsAppRepository
 from models.postgres_model import WhatsAppInboxMessage
 from schemas.whatsapp_inbox import (
@@ -25,6 +25,7 @@ class MessageService:
     def __init__(self, db: Session):
         self.db = db
         self.repo = MessageRepository(db)
+        from services.conversation_service import ConversationRepository
         self.conv_repo = ConversationRepository(db)
 
     def _meta_url(self, phone_number_id: str) -> str:

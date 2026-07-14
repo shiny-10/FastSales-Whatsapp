@@ -7,7 +7,7 @@ from typing import Optional
 from datetime import datetime
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-from services.message_service import MessageRepository
+from sqlalchemy.orm import Session
 from models.postgres_model import WhatsAppInboxConversation
 from schemas.whatsapp_inbox import (
     ConversationListResponse,
@@ -19,6 +19,7 @@ class ConversationService:
     def __init__(self, db: Session):
         self.db = db
         self.repo = ConversationRepository(db)
+        from services.message_service import MessageRepository
         self.msg_repo = MessageRepository(db)
 
     def get_or_create(
