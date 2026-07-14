@@ -1,6 +1,6 @@
+from __future__ import annotations
+from core.config import settings
 import requests
-from config import ACCESS_TOKEN, WABA_ID
-
 
 class MetaTemplateService:
 
@@ -12,10 +12,10 @@ class MetaTemplateService:
         body
     ):
 
-        url = f"https://graph.facebook.com/v25.0/{WABA_ID}/message_templates"
+        url = f"https://graph.facebook.com/v25.0/{settings.WABA_ID}/message_templates"
 
         headers = {
-            "Authorization": f"Bearer {ACCESS_TOKEN}",
+            "Authorization": f"Bearer {settings.ACCESS_TOKEN}",
             "Content-Type": "application/json"
         }
 
@@ -51,7 +51,7 @@ class MetaTemplateService:
         )
 
         headers = {
-            "Authorization": f"Bearer {ACCESS_TOKEN}"
+            "Authorization": f"Bearer {settings.ACCESS_TOKEN}"
         }
 
         response = requests.get(

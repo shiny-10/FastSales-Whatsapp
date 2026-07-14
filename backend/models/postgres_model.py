@@ -13,8 +13,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 
-from database.db import Base, JSON_TYPE
-
+from core.database import Base
+from sqlalchemy import JSON as JSON_TYPE
 
 class Organization(Base):
     __tablename__ = "organizations"
@@ -35,7 +35,6 @@ class Organization(Base):
     chatbot_rules = relationship("ChatbotRule", back_populates="organization", cascade="all, delete-orphan")
     activity_logs = relationship("ActivityLog", back_populates="organization", cascade="all, delete-orphan")
     message_logs = relationship("MessageLog", back_populates="organization", cascade="all, delete-orphan")
-
 
 class Contact(Base):
     __tablename__ = "contacts"
@@ -59,7 +58,6 @@ class Contact(Base):
     __table_args__ = (
         Index("ix_contacts_org_status", "organization_id", "status"),
     )
-
 
 class Template(Base):
     __tablename__ = "templates"
@@ -90,7 +88,6 @@ class Template(Base):
         Index("ix_templates_org_status", "organization_id", "status"),
     )
 
-
 class Campaign(Base):
     __tablename__ = "campaigns"
 
@@ -112,7 +109,6 @@ class Campaign(Base):
         Index("ix_campaigns_org_status", "organization_id", "status"),
     )
 
-
 class CampaignContact(Base):
     __tablename__ = "campaign_contacts"
 
@@ -128,7 +124,6 @@ class CampaignContact(Base):
     __table_args__ = (
         UniqueConstraint("campaign_id", "contact_id", name="uq_campaign_contact"),
     )
-
 
 class CampaignRecipient(Base):
     __tablename__ = "campaign_recipients"
@@ -149,7 +144,6 @@ class CampaignRecipient(Base):
         Index("ix_campaign_recipients_campaign_status", "campaign_id", "status"),
     )
 
-
 class MessageLog(Base):
     __tablename__ = "message_logs"
 
@@ -169,7 +163,6 @@ class MessageLog(Base):
         Index("ix_message_logs_org_status", "organization_id", "status"),
     )
 
-
 class ActivityLog(Base):
     __tablename__ = "activity_logs"
 
@@ -183,7 +176,6 @@ class ActivityLog(Base):
 
     organization = relationship("Organization", back_populates="activity_logs")
     template = relationship("Template", back_populates="activity_logs")
-
 
 class AutoReply(Base):
     __tablename__ = "auto_replies"
@@ -204,7 +196,6 @@ class AutoReply(Base):
         Index("ix_auto_replies_org_active", "organization_id", "active"),
     )
 
-
 class ChatbotRule(Base):
     __tablename__ = "chatbot_rules"
 
@@ -223,7 +214,6 @@ class ChatbotRule(Base):
     __table_args__ = (
         Index("ix_chatbot_rules_org_active_priority", "organization_id", "active", "priority"),
     )
-
 
 class Conversation(Base):
     __tablename__ = "conversations"
@@ -250,7 +240,6 @@ class Conversation(Base):
         Index("ix_conversations_org_status_last_message", "organization_id", "status", "last_message_at"),
     )
 
-
 class ConversationMessage(Base):
     __tablename__ = "conversation_messages"
 
@@ -271,7 +260,6 @@ class ConversationMessage(Base):
         Index("ix_conversation_messages_conversation_created", "conversation_id", "created_at"),
     )
 
-
 class ConversationRead(Base):
     __tablename__ = "conversation_reads"
 
@@ -285,7 +273,6 @@ class ConversationRead(Base):
     __table_args__ = (
         UniqueConstraint("conversation_id", "user_id", name="uq_conversation_user"),
     )
-
 
 class WhatsAppSettings(Base):
     __tablename__ = "whatsapp_settings"
@@ -334,6 +321,155 @@ class WhatsAppSettings(Base):
             "subscribed_events": self.subscribed_events or [],
         }
 
+class WhatsAppAccount(Base):
+    __tablename__ = "whatsapp_accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
+    waba_id = Column(String(255), nullable=False, index=True)
+    phone_number_id = Column(String(255), nullable=False)
+    access_token = Column(String(1000), nullable=False)
+    display_phone_number = Column(String(255), nullable=True)
+    verified_name = Column(String(255), nullable=True)
+    status = Column(String(50), default="ACTIVE", nullable=False)
+    webhook_verified = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+class WhatsAppInboxConversation(Base):
+    __tablename__ = "whatsapp_inbox_conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    whatsapp_account_id = Column(Integer, ForeignKey("whatsapp_accounts.id", ondelete="SET NULL"), nullable=True, index=True)
+    customer_phone = Column(String(32), nullable=False, index=True)
+    customer_name = Column(String(255), nullable=True)
+    assigned_agent_id = Column(Integer, nullable=True)
+    status = Column(String(50), default="OPEN", nullable=False, index=True)
+    is_archived = Column(Boolean, default=False, nullable=False, index=True)
+    unread_count = Column(Integer, default=0, nullable=False)
+    last_message_at = Column(DateTime, nullable=True)
+    metadata_json = Column("metadata", JSON_TYPE, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+class WhatsAppInboxMessage(Base):
+    __tablename__ = "whatsapp_inbox_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("whatsapp_inbox_conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    meta_message_id = Column(String(255), nullable=True, unique=True, index=True)
+    sender_type = Column(String(30), nullable=False)
+    sender_id = Column(Integer, nullable=True)
+    message_type = Column(String(50), default="TEXT", nullable=False)
+    content = Column(Text, nullable=True)
+    caption = Column(Text, nullable=True)
+    status = Column(String(30), default="PENDING", nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+    reply_to_message_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    reactions = relationship("WhatsAppInboxMessageReaction", back_populates="message", cascade="all, delete-orphan")
+    media_files = relationship("WhatsAppInboxMediaFile", back_populates="message", cascade="all, delete-orphan")
+
+class WhatsAppInboxMessageReaction(Base):
+    __tablename__ = "whatsapp_inbox_message_reactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("whatsapp_inbox_messages.id", ondelete="CASCADE"), nullable=False, index=True)
+    emoji = Column(String(20), nullable=False)
+    customer_phone = Column(String(32), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("message_id", "customer_phone", name="uq_whatsapp_inbox_reaction_message_customer"),
+    )
+
+    message = relationship("WhatsAppInboxMessage", back_populates="reactions")
+
+class WhatsAppInboxMediaFile(Base):
+    __tablename__ = "whatsapp_inbox_media_files"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("whatsapp_inbox_messages.id", ondelete="CASCADE"), nullable=False, index=True)
+    media_id = Column(String(255), nullable=True)
+    file_name = Column(String(255), nullable=True)
+    file_url = Column(String(1000), nullable=True)
+    s3_key = Column(String(500), nullable=True)
+    mime_type = Column(String(255), nullable=True)
+    file_size = Column(Integer, nullable=True)
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    duration = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    message = relationship("WhatsAppInboxMessage", back_populates="media_files")
+
+class WhatsAppInboxBroadcast(Base):
+    __tablename__ = "whatsapp_inbox_broadcasts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    recipients = Column(JSON_TYPE, nullable=False, default=list)
+    status = Column(String(30), default="DRAFT", nullable=False)
+    scheduled_at = Column(DateTime, nullable=True)
+    sent_count = Column(Integer, default=0, nullable=False)
+    failed_count = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+class WhatsAppInboxScheduledMessage(Base):
+    __tablename__ = "whatsapp_inbox_scheduled_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("whatsapp_inbox_conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    agent_id = Column(Integer, nullable=True)
+    message_type = Column(String(50), default="TEXT", nullable=False)
+    content = Column(Text, nullable=True)
+    media_url = Column(String(1000), nullable=True)
+    template_name = Column(String(255), nullable=True)
+    components = Column(JSON_TYPE, nullable=True)
+    scheduled_at = Column(DateTime, nullable=False, index=True)
+    status = Column(String(30), default="PENDING", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+class WhatsAppInboxAutoReply(Base):
+    __tablename__ = "whatsapp_inbox_auto_replies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    delay_seconds = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+class WhatsAppInboxChatbotRule(Base):
+    __tablename__ = "whatsapp_inbox_chatbot_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    keyword = Column(String(255), nullable=False)
+    response = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    match_exact = Column(Boolean, default=False, nullable=False)
+    priority = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+class WhatsAppInboxCannedResponse(Base):
+    __tablename__ = "whatsapp_inbox_canned_responses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    shortcut = Column(String(100), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 __all__ = [
     "ActivityLog",
@@ -350,5 +486,15 @@ __all__ = [
     "Organization",
     "Template",
     "WhatsAppSettings",
+    "WhatsAppAccount",
+    "WhatsAppInboxConversation",
+    "WhatsAppInboxMessage",
+    "WhatsAppInboxMessageReaction",
+    "WhatsAppInboxMediaFile",
+    "WhatsAppInboxBroadcast",
+    "WhatsAppInboxScheduledMessage",
+    "WhatsAppInboxAutoReply",
+    "WhatsAppInboxChatbotRule",
+    "WhatsAppInboxCannedResponse",
     "Base",
 ]

@@ -4,7 +4,6 @@ from routes.deps import get_current_user_from_ws
 
 router = APIRouter()
 
-
 @router.websocket("/ws/{org_id}")
 async def websocket_endpoint(websocket: WebSocket, org_id: str, user=Depends(get_current_user_from_ws)):
     # Ensure user belongs to org

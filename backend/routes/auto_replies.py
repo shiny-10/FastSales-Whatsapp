@@ -1,11 +1,10 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from database.db import SessionLocal
+from core.database import SessionLocal
 from models.postgres_model import AutoReply
 
 router = APIRouter()
-
 
 class AutoReplyCreate(BaseModel):
     name: str
@@ -13,7 +12,6 @@ class AutoReplyCreate(BaseModel):
     pattern: str
     response_template: Optional[str] = None
     active: Optional[bool] = True
-
 
 @router.get("/settings/auto-replies")
 def list_auto_replies():
@@ -35,7 +33,6 @@ def list_auto_replies():
     finally:
         db.close()
 
-
 @router.post("/settings/auto-replies")
 def create_auto_reply(payload: AutoReplyCreate):
     db = SessionLocal()
@@ -54,7 +51,6 @@ def create_auto_reply(payload: AutoReplyCreate):
     finally:
         db.close()
 
-
 @router.patch("/settings/auto-replies/{item_id}")
 def update_auto_reply(item_id: int, payload: dict):
     db = SessionLocal()
@@ -70,7 +66,6 @@ def update_auto_reply(item_id: int, payload: dict):
         return {"success": True, "auto_reply": {"id": item.id}}
     finally:
         db.close()
-
 
 @router.delete("/settings/auto-replies/{item_id}")
 def delete_auto_reply(item_id: int):

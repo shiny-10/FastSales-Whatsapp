@@ -1,14 +1,15 @@
-from database.db import SessionLocal
+from __future__ import annotations
+from core.config import settings
+from core.database import SessionLocal
 from models.postgres_model import Campaign, CampaignContact, CampaignRecipient, Contact, MessageLog, Template
 from services.meta_service import MetaWhatsAppService
-from config import ACCESS_TOKEN, PHONE_NUMBER_ID
+
 from datetime import datetime
 
 meta_service = MetaWhatsAppService(
-    ACCESS_TOKEN,
-    PHONE_NUMBER_ID
+    settings.ACCESS_TOKEN,
+    settings.PHONE_NUMBER_ID
 )
-
 
 def process_scheduled_campaigns():
 

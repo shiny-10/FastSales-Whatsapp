@@ -8,3 +8,7 @@ pandas
 openpyxl
 apscheduler
 PyJWT
+httpx
+boto3
+redis
+pydantic-settings

@@ -1,16 +1,16 @@
+from core.config import settings
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
-from database.db import SessionLocal
+from core.database import SessionLocal
 from models.postgres_model import Conversation, ConversationMessage, MessageLog
 from services.meta_service import MetaWhatsAppService
-from config import ACCESS_TOKEN, PHONE_NUMBER_ID
+
 from routes.deps import get_current_user
 import asyncio
 from services.websocket_manager import manager
 
 router = APIRouter()
-
 
 class SendMessageRequest(BaseModel):
     conversation_id: int
@@ -18,7 +18,6 @@ class SendMessageRequest(BaseModel):
     message_type: str
     template_name: Optional[str] = None
     text: Optional[str] = None
-
 
 @router.get("/conversations/{conversation_id}/messages")
 def list_messages(conversation_id: int, limit: int = 50):
@@ -38,13 +37,12 @@ def list_messages(conversation_id: int, limit: int = 50):
     finally:
         db.close()
 
-
 @router.post("/messages/send")
 def send_message(payload: SendMessageRequest, user: dict = Depends(get_current_user)):
     # Use MetaWhatsAppService to send template messages; record in MessageLog and ConversationMessage
     db = SessionLocal()
     try:
-        meta = MetaWhatsAppService(ACCESS_TOKEN, PHONE_NUMBER_ID)
+        meta = MetaWhatsAppService(settings.ACCESS_TOKEN, settings.PHONE_NUMBER_ID)
         result = None
         if payload.message_type == "template":
             result = meta.send_template_message(payload.to, payload.template_name)

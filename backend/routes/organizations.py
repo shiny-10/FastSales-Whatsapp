@@ -1,9 +1,8 @@
 from fastapi import APIRouter
-from database.db import SessionLocal
+from core.database import SessionLocal
 from models.postgres_model import Campaign, Contact, Organization
 
 router = APIRouter()
-
 
 @router.post("/create")
 def create_organization(data: dict):
@@ -26,7 +25,6 @@ def create_organization(data: dict):
         "success": True,
         "organization_id": org.id
     }
-
 
 @router.get("/")
 def get_organizations(q: str = None, status: str = None, sort: str = "newest"):
@@ -72,7 +70,6 @@ def get_organizations(q: str = None, status: str = None, sort: str = "newest"):
     db.close()
 
     return result
-
 
 @router.get("/{organization_id}")
 def get_organization(organization_id: int):

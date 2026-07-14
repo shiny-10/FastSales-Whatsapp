@@ -1,22 +1,21 @@
+from core.config import settings
 from fastapi import WebSocket, Depends, HTTPException, Header, Cookie
-import config
+
 import jwt
 from datetime import datetime
 
-
 def _decode_jwt(token: str):
     try:
-        key = config.CRM_JWT_PUBLIC_KEY if getattr(config, 'CRM_JWT_PUBLIC_KEY', None) else config.JWT_SECRET
-        algorithms = [config.JWT_ALGORITHM]
+        key = settings.CRM_JWT_PUBLIC_KEY if getattr(config, 'CRM_JWT_PUBLIC_KEY', None) else settings.JWT_SECRET
+        algorithms = [settings.JWT_ALGORITHM]
         # If issuer is configured, validate it
         if getattr(config, 'CRM_JWT_ISSUER', None):
-            payload = jwt.decode(token, key, algorithms=algorithms, issuer=config.CRM_JWT_ISSUER)
+            payload = jwt.decode(token, key, algorithms=algorithms, issuer=settings.CRM_JWT_ISSUER)
         else:
             payload = jwt.decode(token, key, algorithms=algorithms)
         return payload
     except Exception:
         return None
-
 
 async def get_current_user_from_ws(websocket: WebSocket):
     """WebSocket auth: expects `token` query param with JWT containing `user_id` and `organization_id`.
@@ -37,7 +36,6 @@ async def get_current_user_from_ws(websocket: WebSocket):
         return None
     # minimal user object
     return {"id": payload.get("user_id"), "organization_id": payload.get("organization_id"), "exp": payload.get("exp")}
-
 
 from fastapi import Header
 

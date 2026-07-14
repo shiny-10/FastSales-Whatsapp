@@ -1,18 +1,16 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
-from database.db import SessionLocal
+from core.database import SessionLocal
 from routes.deps import get_current_user
 from models.postgres_model import Contact, Conversation, ConversationMessage
 
 router = APIRouter()
 
-
 class ConversationCreateRequest(BaseModel):
     contact_id: Optional[int] = None
     customer_phone: Optional[str] = None
     customer_name: Optional[str] = None
-
 
 @router.post("/conversations")
 def create_conversation(payload: ConversationCreateRequest):
@@ -47,7 +45,6 @@ def create_conversation(payload: ConversationCreateRequest):
         return {"success": True, "conversation": {"id": conv.id}}
     finally:
         db.close()
-
 
 @router.get("/conversations")
 def list_conversations(status: Optional[str] = None, user: dict = Depends(get_current_user)):
@@ -85,7 +82,6 @@ def list_conversations(status: Optional[str] = None, user: dict = Depends(get_cu
         return {"success": True, "conversations": out}
     finally:
         db.close()
-
 
 @router.get("/conversations/{conversation_id}")
 def get_conversation(conversation_id: int, user: dict = Depends(get_current_user)):

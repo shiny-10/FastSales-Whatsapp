@@ -1,6 +1,6 @@
+from __future__ import annotations
 from typing import Dict, Set
 from fastapi import WebSocket
-
 
 class ConnectionManager:
     def __init__(self):
@@ -28,6 +28,5 @@ class ConnectionManager:
             except Exception:
                 # ignore send errors; cleanup happens on disconnect
                 pass
-
 
 manager = ConnectionManager()

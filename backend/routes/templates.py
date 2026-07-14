@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, UploadFile, File
-from database.db import SessionLocal
+from core.database import SessionLocal
 from models.postgres_model import ActivityLog, Organization, Template
 from services.template_service import MetaTemplateService
 import os
@@ -11,7 +11,6 @@ router = APIRouter()
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
 
 def log_activity(db, action: str, template_id: int, template_name: str, status: str, organization_id: int = 1):
     """Helper function to log template activities"""
@@ -27,7 +26,6 @@ def log_activity(db, action: str, template_id: int, template_name: str, status: 
         db.commit()
     except Exception as e:
         print(f"Error logging activity: {e}")
-
 
 @router.post("/create")
 async def create_template(request: Request, file: UploadFile = File(None)):
@@ -124,7 +122,6 @@ async def create_template(request: Request, file: UploadFile = File(None)):
     finally:
         db.close()
 
-
 @router.get("/")
 def get_templates():
     db = SessionLocal()
@@ -160,7 +157,6 @@ def get_templates():
     db.close()
 
     return result
-
 
 @router.put("/{template_id}")
 def update_template(template_id: int, data: dict):
@@ -199,7 +195,6 @@ def update_template(template_id: int, data: dict):
         "success": True,
         "message": "Template updated"
     }
-
 
 @router.delete("/{template_id}")
 def delete_template(template_id: int):
@@ -286,7 +281,6 @@ def sync_template_status(template_id: int):
     db.close()
 
     return result
-
 
 @router.get("/activity/recent")
 def get_recent_activities(limit: int = 5):

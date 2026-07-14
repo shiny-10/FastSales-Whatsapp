@@ -1,15 +1,15 @@
+from core.config import settings
 from fastapi import APIRouter
-from database.db import SessionLocal
+from core.database import SessionLocal
 from models.postgres_model import Campaign, CampaignContact, CampaignRecipient, Contact, MessageLog, Template
 from services.meta_service import MetaWhatsAppService
 from datetime import datetime
-from config import ACCESS_TOKEN, PHONE_NUMBER_ID
 
 router = APIRouter()
 
 meta_service = MetaWhatsAppService(
-    ACCESS_TOKEN,
-    PHONE_NUMBER_ID
+    settings.ACCESS_TOKEN,
+    settings.PHONE_NUMBER_ID
 )
 
 @router.post("/create-campaign")
