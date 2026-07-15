@@ -6,9 +6,9 @@ from typing import Optional
 import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-
 from models.postgres_model import WhatsAppAccount
 from schemas.whatsapp_inbox import WhatsAppConnectRequest
+from core.config import settings as config
 
 class WhatsAppService:
     def __init__(self, db: Session):
@@ -61,12 +61,18 @@ class WhatsAppService:
         account = self.repo.get_by_organization(organization_id)
         if account and account.status == "ACTIVE":
             try:
+                # Validate token but do not raise on transient errors; treat unreachable Meta as disconnected
                 self.validate_token(account.access_token, account.phone_number_id)
             except HTTPException as exc:
                 if exc.status_code == status.HTTP_400_BAD_REQUEST:
                     account = self.repo.update(account.id, status="DISCONNECTED")
                     return account
-                raise
+                # For other HTTP errors (timeouts/network), mark disconnected to avoid blocking frontend
+                try:
+                    account = self.repo.update(account.id, status="DISCONNECTED")
+                    return account
+                except Exception:
+                    return None
         return account
 
     def disconnect(self, organization_id: int) -> bool:

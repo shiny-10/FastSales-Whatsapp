@@ -1,18 +1,34 @@
-from fastapi import APIRouter
+from typing import Optional
+
+from fastapi import APIRouter, Body
+from pydantic import BaseModel
+
 from core.database import SessionLocal
 from models.postgres_model import Campaign, Contact, Organization
 
 router = APIRouter()
 
+class OrganizationCreate(BaseModel):
+    name: str
+    email: Optional[str] = None
+    industry: Optional[str] = None
+    status: str = "Active"
+
+class OrganizationUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    industry: Optional[str] = None
+    status: Optional[str] = None
+
 @router.post("/create")
-def create_organization(data: dict):
+def create_organization(data: OrganizationCreate = Body(...)):
     db = SessionLocal()
 
     org = Organization(
-        name=data["name"],
-        email=data.get("email"),
-        industry=data.get("industry"),
-        status=data.get("status", "Active"),
+        name=data.name,
+        email=data.email,
+        industry=data.industry,
+        status=data.status,
     )
 
     db.add(org)
@@ -26,7 +42,7 @@ def create_organization(data: dict):
         "organization_id": org.id
     }
 
-@router.get("/")
+@router.get("")
 def get_organizations(q: str = None, status: str = None, sort: str = "newest"):
     db = SessionLocal()
 
@@ -107,7 +123,7 @@ def get_organization(organization_id: int):
 @router.put("/{organization_id}")
 def update_organization(
     organization_id: int,
-    data: dict
+    data: OrganizationUpdate = Body(...)
 ):
     db = SessionLocal()
 
@@ -122,10 +138,14 @@ def update_organization(
             "message": "Organization not found"
         }
 
-    org.name = data.get("name", org.name)
-    org.email = data.get("email", org.email)
-    org.industry = data.get("industry", org.industry)
-    org.status = data.get("status", org.status)
+    if data.name is not None:
+        org.name = data.name
+    if data.email is not None:
+        org.email = data.email
+    if data.industry is not None:
+        org.industry = data.industry
+    if data.status is not None:
+        org.status = data.status
 
     db.commit()
     db.close()

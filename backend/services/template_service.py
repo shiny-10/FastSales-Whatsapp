@@ -12,10 +12,14 @@ class MetaTemplateService:
         body
     ):
 
-        url = f"https://graph.facebook.com/v25.0/{settings.WABA_ID}/message_templates"
+        base = settings.META_BASE_URL.rstrip('/')
+        version = settings.META_API_VERSION
+        waba = settings.META_BUSINESS_ACCOUNT_ID or settings.WABA_ID
+
+        url = f"{base}/{version}/{waba}/message_templates"
 
         headers = {
-            "Authorization": f"Bearer {settings.ACCESS_TOKEN}",
+            "Authorization": f"Bearer {settings.META_ACCESS_TOKEN}",
             "Content-Type": "application/json"
         }
 
@@ -44,19 +48,18 @@ class MetaTemplateService:
 
     def get_template_status(self, meta_template_id):
 
-        url = (
-            f"https://graph.facebook.com/v25.0/"
-            f"{meta_template_id}"
-            "?fields=name,status,category"
-        )
+        base = settings.META_BASE_URL.rstrip('/')
+        version = settings.META_API_VERSION
+
+        url = f"{base}/{version}/{meta_template_id}?fields=name,status,category"
 
         headers = {
-            "Authorization": f"Bearer {settings.ACCESS_TOKEN}"
+            "Authorization": f"Bearer {settings.META_ACCESS_TOKEN}"
         }
 
-        response = requests.get(
-            url,
-            headers=headers
-        )
+        response = requests.get(url, headers=headers, timeout=10)
 
-        return response.json()
+        try:
+            return response.json()
+        except Exception:
+            return {"error": "invalid_json_response", "status_code": response.status_code, "text": response.text}

@@ -3,6 +3,9 @@ from fastapi import APIRouter
 from fastapi import Body, Request
 from pydantic import BaseModel
 from services.meta_service import MetaWhatsAppService
+from services.whatsapp_service import WhatsAppService
+from fastapi import HTTPException
+from schemas.whatsapp_inbox import WhatsAppConnectRequest
 
 from core.database import SessionLocal
 from models.postgres_model import Contact, Conversation, ConversationMessage, MessageLog
@@ -267,3 +270,82 @@ def get_activity_logs(limit: int = 25):
         db.close()
 
     return {"success": True, "logs": result}
+
+
+# --- Account management endpoints for frontend hooks ---
+@router.post("/connect")
+def connect_whatsapp(payload: WhatsAppConnectRequest, request: Request):
+    db = SessionLocal()
+    try:
+        svc = WhatsAppService(db)
+        # organization id may come from header or default to 1
+        try:
+            org_id = int(request.headers.get("X-Organization-Id") or 1)
+        except Exception:
+            org_id = 1
+
+        account = svc.connect(org_id, payload)
+        return {"success": True, "account": {
+            "id": account.id,
+            "organization_id": account.organization_id,
+            "waba_id": account.waba_id,
+            "phone_number_id": account.phone_number_id,
+            "display_phone_number": account.display_phone_number,
+            "verified_name": account.verified_name,
+            "status": account.status,
+        }}
+    except HTTPException as e:
+        return {"success": False, "error": str(e.detail)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        db.close()
+
+
+@router.get("/account")
+def get_account(request: Request):
+    db = SessionLocal()
+    try:
+        try:
+            org_id = int(request.headers.get("X-Organization-Id") or 1)
+        except Exception:
+            org_id = 1
+
+        svc = WhatsAppService(db)
+        account = svc.get_account(org_id)
+        if not account:
+            return {"connected": False, "account": None, "message": "No WhatsApp account connected"}
+
+        return {"connected": True, "account": {
+            "id": account.id,
+            "organization_id": account.organization_id,
+            "waba_id": account.waba_id,
+            "phone_number_id": account.phone_number_id,
+            "display_phone_number": account.display_phone_number,
+            "verified_name": account.verified_name,
+            "status": account.status,
+        }, "message": "Account connected"}
+    except Exception as e:
+        return {"connected": False, "account": None, "message": str(e)}
+    finally:
+        db.close()
+
+
+@router.delete("/disconnect")
+def disconnect_account(request: Request):
+    db = SessionLocal()
+    try:
+        try:
+            org_id = int(request.headers.get("X-Organization-Id") or 1)
+        except Exception:
+            org_id = 1
+
+        svc = WhatsAppService(db)
+        svc.disconnect(org_id)
+        return {"success": True, "message": "Disconnected"}
+    except HTTPException as e:
+        return {"success": False, "error": str(e.detail)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        db.close()

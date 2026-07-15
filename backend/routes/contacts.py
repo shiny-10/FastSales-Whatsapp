@@ -1,22 +1,43 @@
+from typing import Optional
+
+from fastapi import APIRouter, Body, Query, UploadFile, File
+from pydantic import BaseModel
+
 from core.database import SessionLocal
 from models.postgres_model import Contact, Organization
-from fastapi import APIRouter, Query, UploadFile, File
 import pandas as pd
 
 router = APIRouter()
 
+class ContactCreate(BaseModel):
+    name: str
+    phone_number: str
+    email: Optional[str] = None
+    tag: Optional[str] = None
+    order_id: Optional[str] = None
+    organization_id: Optional[int] = None
+    status: str = "Active"
+
+class ContactUpdate(BaseModel):
+    name: Optional[str] = None
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
+    tag: Optional[str] = None
+    organization_id: Optional[int] = None
+    status: Optional[str] = None
+
 @router.post("/create")
-def create_contact(data: dict):
+def create_contact(data: ContactCreate = Body(...)):
     db = SessionLocal()
 
     contact = Contact(
-        name=data["name"],
-        phone_number=data["phone_number"],
-        email=data.get("email"),
-        tag=data.get("tag"),
-        order_id=data.get("order_id"),
-        organization_id=data.get("organization_id"),
-        status=data.get("status", "Active"),
+        name=data.name,
+        phone_number=data.phone_number,
+        email=data.email,
+        tag=data.tag,
+        order_id=data.order_id,
+        organization_id=data.organization_id,
+        status=data.status,
     )
 
     db.add(contact)
@@ -30,7 +51,7 @@ def create_contact(data: dict):
         "contact_id": contact.id,
     }
 
-@router.get("/")
+@router.get("")
 def get_contacts(q: str = None, organization_id: int = None, status: str = None):
     db = SessionLocal()
 
@@ -77,7 +98,7 @@ def get_contacts(q: str = None, organization_id: int = None, status: str = None)
     return result
 
 @router.put("/{contact_id}")
-def update_contact(contact_id: int, data: dict):
+def update_contact(contact_id: int, data: ContactUpdate = Body(...)):
     db = SessionLocal()
 
     contact = db.query(Contact).filter(Contact.id == contact_id).first()
@@ -86,12 +107,18 @@ def update_contact(contact_id: int, data: dict):
         db.close()
         return {"success": False, "message": "Contact not found"}
 
-    contact.name = data.get("name", contact.name)
-    contact.phone_number = data.get("phone_number", contact.phone_number)
-    contact.email = data.get("email", contact.email)
-    contact.tag = data.get("tag", contact.tag)
-    contact.organization_id = data.get("organization_id", contact.organization_id)
-    contact.status = data.get("status", contact.status)
+    if data.name is not None:
+        contact.name = data.name
+    if data.phone_number is not None:
+        contact.phone_number = data.phone_number
+    if data.email is not None:
+        contact.email = data.email
+    if data.tag is not None:
+        contact.tag = data.tag
+    if data.organization_id is not None:
+        contact.organization_id = data.organization_id
+    if data.status is not None:
+        contact.status = data.status
 
     db.commit()
     db.close()

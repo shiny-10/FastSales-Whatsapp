@@ -20,6 +20,7 @@ export default function TemplatesPage() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [notification, setNotification] = useState({ type: "", message: "" });
   const [isLoading, setIsLoading] = useState(false);
+  const [syncingIds, setSyncingIds] = useState<number[]>([]);
 
   const [showModal, setShowModal] = useState(false);
 
@@ -228,23 +229,50 @@ export default function TemplatesPage() {
 
   const handleSyncStatus = async (id: any) => {
     try {
+      const tid = Number(id);
+      // mark syncing
+      setSyncingIds((s) => (s.includes(tid) ? s : [...s, tid]));
+
       const result = await syncTemplateStatus(id);
-      if (result.success) {
-        showNotification(
-          "success",
-          `Template synced! Status: ${result.meta_status}`
-        );
-        await loadTemplates();
-        await fetchRecentActivities();
-      } else {
-        showNotification("error", result.message || "Failed to sync template");
+
+      // Backend returns { results: [...] } for bulk or single sync
+      let item: any = null;
+      if (result && result.results) {
+        item = result.results.find((r: any) => Number(r.template_id) === tid) || result.results[0];
+      } else if (result && result.template_id) {
+        item = result;
       }
+
+      if (item) {
+        // If backend returned a meta_status, update the row regardless of success flag
+        if (item.meta_status) {
+          setTemplates((prev) =>
+            prev.map((t) =>
+              Number(t.id) === tid ? { ...t, meta_status: item.meta_status || t.meta_status } : t
+            )
+          );
+        }
+
+        if (item.success) {
+          showNotification("success", `Template synced! Status: ${item.meta_status}`);
+        } else {
+          showNotification("error", item.message || "Failed to sync template");
+        }
+      } else {
+        showNotification("error", "No sync result returned");
+      }
+
+      // refresh recent activities after sync
+      await fetchRecentActivities();
     } catch (error) {
       console.error(error);
       showNotification(
         "error",
         ((error as Error).message) || "Failed to sync template status. Please try again."
       );
+    } finally {
+      const tid = Number(id);
+      setSyncingIds((s) => s.filter((x) => x !== tid));
     }
   };
   // Calculate stats
@@ -439,8 +467,13 @@ export default function TemplatesPage() {
                       onClick={() => handleSyncStatus(template.id)}
                       className="text-green-600 hover:text-green-800"
                       title="Sync"
+                      disabled={syncingIds.includes(Number(template.id))}
                     >
-                      ⟳
+                      {syncingIds.includes(Number(template.id)) ? (
+                        <span className="animate-spin inline-block">⟳</span>
+                      ) : (
+                        "⟳"
+                      )}
                     </button>
                   </td>
                 </tr>

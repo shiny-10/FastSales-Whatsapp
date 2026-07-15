@@ -14,7 +14,7 @@ export function useMessages(conversationId: string | null) {
       const params: Record<string, string> = {};
       if (pageParam) params.before = pageParam as string;
       const { data } = await api.get(
-        `/api/conversations/${conversationId}/messages`,
+        `/inbox/conversations/${conversationId}/messages`,
         { params }
       );
       return data;

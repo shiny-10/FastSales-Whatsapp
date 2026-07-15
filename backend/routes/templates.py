@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Request, UploadFile, File
+from typing import Optional
+
+from fastapi import APIRouter, Request, UploadFile, File, Body
+from pydantic import BaseModel
 from core.database import SessionLocal
 from models.postgres_model import ActivityLog, Organization, Template
 from services.template_service import MetaTemplateService
@@ -6,6 +9,15 @@ import os
 import uuid
 import json
 meta_template_service = MetaTemplateService()
+
+class TemplateUpdate(BaseModel):
+    template_name: Optional[str] = None
+    category: Optional[str] = None
+    language: Optional[str] = None
+    header: Optional[str] = None
+    template_body: Optional[str] = None
+    footer: Optional[str] = None
+    buttons: Optional[list] = None
 
 router = APIRouter()
 
@@ -122,7 +134,7 @@ async def create_template(request: Request, file: UploadFile = File(None)):
     finally:
         db.close()
 
-@router.get("/")
+@router.get("")
 def get_templates():
     db = SessionLocal()
 
@@ -159,7 +171,7 @@ def get_templates():
     return result
 
 @router.put("/{template_id}")
-def update_template(template_id: int, data: dict):
+def update_template(template_id: int, data: TemplateUpdate = Body(...)):
     db = SessionLocal()
 
     template = db.query(Template).filter(
@@ -167,15 +179,23 @@ def update_template(template_id: int, data: dict):
     ).first()
 
     if not template:
+        db.close()
         return {"success": False, "message": "Template not found"}
 
-    template.template_name = data["template_name"]
-    template.category = data["category"]    
-    template.language = data["language"]
-    template.header = data.get("header", "none")
-    template.template_body = data["template_body"]
-    template.footer = data.get("footer")
-    template.buttons = data.get("buttons", [])
+    if data.template_name is not None:
+        template.template_name = data.template_name
+    if data.category is not None:
+        template.category = data.category
+    if data.language is not None:
+        template.language = data.language
+    if data.header is not None:
+        template.header = data.header
+    if data.template_body is not None:
+        template.template_body = data.template_body
+    if data.footer is not None:
+        template.footer = data.footer
+    if data.buttons is not None:
+        template.buttons = data.buttons
 
     db.commit()
 
@@ -226,61 +246,107 @@ def delete_template(template_id: int):
         "success": True,
         "message": "Template deleted"
     }
-@router.get("/{template_id}/sync-status")
-def sync_template_status(template_id: int):
-
+@router.get("/sync-status")
+def sync_template_status(template_id: Optional[int] = None):
+    """
+    Sync template status.
+    If `template_id` query param is provided, sync only that template.
+    If not provided, sync all templates that have a `meta_template_id`.
+    """
     db = SessionLocal()
 
-    template = db.query(Template).filter(
-        Template.id == template_id
-    ).first()
+    results = []
 
-    if not template:
-        db.close()
+    templates_query = db.query(Template)
+    if template_id:
+        templates = templates_query.filter(Template.id == template_id).all()
+    else:
+        templates = templates_query.all()
 
-        return {
-            "success": False,
-            "message": "Template not found"
-        }
+    for template in templates:
+        if not template.meta_template_id:
+            # Attempt to create the meta template automatically
+            try:
+                created = meta_template_service.create_template(
+                    template_name=template.template_name,
+                    category=template.category,
+                    language=template.language,
+                    body=template.template_body,
+                )
 
-    if not template.meta_template_id:
-        db.close()
+                new_id = created.get("id") or created.get("template_id")
+                if new_id:
+                    template.meta_template_id = str(new_id)
+                    template.meta_template_name = template.template_name
+                    template.meta_status = created.get("status") or template.meta_status or "PENDING"
+                    db.commit()
+                    # proceed to fetch status below using the new meta_template_id
+                else:
+                    # creation did not return an id; mark as locally pending and continue
+                    template.meta_status = template.meta_status or "PENDING"
+                    db.commit()
+                    results.append({
+                        "template_id": template.id,
+                        "template_name": template.template_name,
+                        "success": False,
+                        "message": "Meta template creation failed",
+                        "meta_response": created,
+                        "meta_status": template.meta_status,
+                    })
+                    continue
+            except Exception as e:
+                # mark as pending locally and return error message
+                template.meta_status = template.meta_status or "PENDING"
+                try:
+                    db.commit()
+                except Exception:
+                    pass
+                results.append({
+                    "template_id": template.id,
+                    "template_name": template.template_name,
+                    "success": False,
+                    "message": f"Meta template creation error: {e}",
+                    "meta_status": template.meta_status,
+                })
+                continue
 
-        return {
-            "success": False,
-            "message": "Meta template id missing"
-        }
+        try:
+            meta_response = meta_template_service.get_template_status(
+                template.meta_template_id
+            )
 
-    meta_response = meta_template_service.get_template_status(
-        template.meta_template_id
-    )
+            if meta_response.get("status"):
+                template.meta_status = meta_response["status"]
+                db.commit()
 
-    if meta_response.get("status"):
-        template.meta_status = meta_response["status"]
+                # Log the sync activity
+                log_activity(
+                    db,
+                    action="synced",
+                    template_id=template.id,
+                    template_name=template.template_name,
+                    status=template.meta_status,
+                    organization_id=template.organization_id
+                )
 
-        db.commit()
-        
-        # Log the sync activity
-        log_activity(
-            db,
-            action="synced",
-            template_id=template.id,
-            template_name=template.template_name,
-            status=template.meta_status,
-            organization_id=template.organization_id
-        )
-
-    result = {
-        "success": True,
-        "template_id": template.id,
-        "template_name": template.template_name,
-        "meta_status": template.meta_status,
-        "meta_response": meta_response
-    }
+            results.append({
+                "success": True,
+                "template_id": template.id,
+                "template_name": template.template_name,
+                "meta_status": template.meta_status,
+                "meta_response": meta_response
+            })
+        except Exception as e:
+            results.append({
+                "success": False,
+                "template_id": template.id,
+                "template_name": template.template_name,
+                "message": str(e)
+            })
 
     db.close()
 
-    return result
+    return {"results": results}
 
 @router.get("/activity/recent")
 def get_recent_activities(limit: int = 5):

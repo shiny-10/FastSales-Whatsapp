@@ -6,10 +6,10 @@ from datetime import datetime
 
 def _decode_jwt(token: str):
     try:
-        key = settings.CRM_JWT_PUBLIC_KEY if getattr(config, 'CRM_JWT_PUBLIC_KEY', None) else settings.JWT_SECRET
+        key = settings.CRM_JWT_PUBLIC_KEY if getattr(settings, 'CRM_JWT_PUBLIC_KEY', None) else settings.JWT_SECRET
         algorithms = [settings.JWT_ALGORITHM]
         # If issuer is configured, validate it
-        if getattr(config, 'CRM_JWT_ISSUER', None):
+        if getattr(settings, 'CRM_JWT_ISSUER', None):
             payload = jwt.decode(token, key, algorithms=algorithms, issuer=settings.CRM_JWT_ISSUER)
         else:
             payload = jwt.decode(token, key, algorithms=algorithms)

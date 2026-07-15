@@ -124,11 +124,11 @@ export default function Sidebar() {
 
         </p>
 
-        <button className="mt-4 bg-green-500 hover:bg-green-600 w-full rounded-lg py-2">
+        <Link href="/whatsapp/settings" className="mt-4 inline-flex items-center justify-center bg-green-500 hover:bg-green-600 w-full rounded-lg py-2 text-sm font-semibold transition">
 
           View Settings
 
-        </button>
+        </Link>
 
       </div>
 

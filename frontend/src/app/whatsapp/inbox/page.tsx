@@ -21,7 +21,7 @@ export default function InboxPage() {
   }, [activeConversationId, markConversationRead]);
 
   return (
-    <div className="flex overflow-hidden bg-background" style={{ height: "calc(100vh - 56px)" }}>
+    <div className="flex overflow-hidden bg-background h-full">
       {/* LEFT — Conversation List */}
       <div
         className={cn(

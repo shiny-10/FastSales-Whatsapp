@@ -97,15 +97,17 @@ export const deleteTemplate = async (id: string | number) => {
   }
 };
 
-export const syncTemplateStatus = async (id: string | number) => {
+export const syncTemplateStatus = async (id?: string | number) => {
   try {
-    const response = await fetch(`${API_URL}/${id}/sync-status`);
+    const url = id ? `${API_URL}/sync-status?template_id=${id}` : `${API_URL}/sync-status`;
+    const response = await fetch(url);
 
     if (!response.ok) {
       throw new Error(`Failed to sync template status: ${response.statusText}`);
     }
 
     const result = await response.json();
+    // When syncing all templates, backend returns { results: [...] }
     if (result.success === false) {
       throw new Error(result.message || "Failed to sync template status");
     }

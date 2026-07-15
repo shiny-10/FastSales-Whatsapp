@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect } from "react";
+import InboxPage from "./inbox/page";
 import { getContacts } from "../../services/contactService";
 import { getTemplates } from "../../services/templateService";
 import { sendMessage } from "../../services/whatsappService";
@@ -147,8 +149,8 @@ export default function WhatsAppPage() {
         </div>
       </div>
 
-      <div className="flex gap-6">
-        <div className="w-96">
+      <div className="flex flex-col xl:flex-row gap-6">
+        <div className="xl:w-96 flex-shrink-0">
           <div className="space-y-6">
             {/* Send Message Card */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 space-y-6">
@@ -245,7 +247,26 @@ export default function WhatsAppPage() {
                 )}
               </div>
             </div>
+
+            {/* WhatsApp Business Settings Card */}
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
+              <div className="mb-4">
+                <p className="text-sm font-semibold text-slate-900">WhatsApp Business</p>
+                <p className="text-sm text-slate-500">Connected</p>
+              </div>
+              <p className="text-sm text-slate-600 mb-4">Manage your WhatsApp integration, credentials, broadcasts, auto replies, and chatbot rules.</p>
+              <a
+                href="/whatsapp/settings"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-600 transition"
+              >
+                View Settings
+              </a>
+            </div>
           </div>
+        </div>
+
+        <div className="flex-1 min-h-[calc(100vh-7rem)] bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+          <InboxPage />
         </div>
       </div>
     </div>

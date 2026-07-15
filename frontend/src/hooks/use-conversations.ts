@@ -17,7 +17,7 @@ export function useConversations(params?: {
   return useQuery<ConversationListResponse>({
     queryKey: ["conversations", params],
     queryFn: async () => {
-      const { data } = await api.get("/api/conversations", { params });
+      const { data } = await api.get("/inbox/conversations", { params });
       return data;
     },
     refetchInterval: 30_000,
@@ -28,7 +28,7 @@ export function useConversation(id: string | null) {
   return useQuery<Conversation>({
     queryKey: ["conversation", id],
     queryFn: async () => {
-      const { data } = await api.get(`/api/conversations/${id}`);
+      const { data } = await api.get(`/inbox/conversations/${id}`);
       return data;
     },
     enabled: !!id,
@@ -46,7 +46,7 @@ export function useAssignAgent() {
       agentId: string;
     }) => {
       const { data } = await api.post(
-        `/api/conversations/${conversationId}/assign`,
+        `/inbox/conversations/${conversationId}/assign`,
         { agent_id: agentId }
       );
       return data as Conversation;
@@ -67,7 +67,7 @@ export function useUpdateConversation() {
       id,
       ...updates
     }: Partial<Conversation> & { id: string }) => {
-      const { data } = await api.patch(`/api/conversations/${id}`, updates);
+      const { data } = await api.patch(`/inbox/conversations/${id}`, updates);
       return data as Conversation;
     },
     onSuccess: (data) => {
@@ -89,7 +89,7 @@ export function useArchiveConversation() {
       id: string;
       archive: boolean;
     }) => {
-      const { data } = await api.patch(`/api/conversations/${id}`, {
+      const { data } = await api.patch(`/inbox/conversations/${id}`, {
         is_archived: archive,
       });
       return data as Conversation;
@@ -107,7 +107,7 @@ export function useDeleteConversation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/conversations/${id}`);
+      await api.delete(`/inbox/conversations/${id}`);
       return id;
     },
     onSuccess: (id) => {
@@ -126,7 +126,7 @@ export function useCreateConversation() {
       customer_phone: string;
       customer_name?: string;
     }) => {
-      const { data } = await api.post("/api/conversations", payload);
+      const { data } = await api.post("/inbox/conversations", payload);
       return data as Conversation;
     },
     onSuccess: () => {
@@ -141,7 +141,7 @@ export function useMarkConversationRead() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (conversationId: string) => {
-      const { data } = await api.post(`/api/conversations/${conversationId}/read`);
+      const { data } = await api.post(`/inbox/conversations/${conversationId}/read`);
       return data as Conversation;
     },
     onSuccess: (conversation) => {

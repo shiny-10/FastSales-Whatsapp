@@ -1,5 +1,8 @@
+from typing import List, Optional
+
 from core.config import settings
-from fastapi import APIRouter
+from fastapi import APIRouter, Body
+from pydantic import BaseModel
 from core.database import SessionLocal
 from models.postgres_model import Campaign, CampaignContact, CampaignRecipient, Contact, MessageLog, Template
 from services.meta_service import MetaWhatsAppService
@@ -7,34 +10,45 @@ from datetime import datetime
 
 router = APIRouter()
 
+class CampaignCreate(BaseModel):
+    campaign_name: str
+    template_id: int
+    organization_id: int
+    contact_ids: List[int]
+    schedule_time: Optional[str] = None
+
+class CampaignUpdate(BaseModel):
+    campaign_name: Optional[str] = None
+    template_id: Optional[int] = None
+    contact_ids: Optional[List[int]] = None
+
 meta_service = MetaWhatsAppService(
     settings.ACCESS_TOKEN,
     settings.PHONE_NUMBER_ID
 )
 
 @router.post("/create-campaign")
-def create_campaign(data: dict):
+def create_campaign(data: CampaignCreate = Body(...)):
     db = SessionLocal()
 
     try:
         template = db.query(Template).filter(
-            Template.id == data["template_id"]
+            Template.id == data.template_id
         ).first()
 
         if not template:
+            db.close()
             return {
                 "success": False,
                 "message": "Template not found"
             }
 
         campaign = Campaign(
-            campaign_name=data["campaign_name"],
-            template_id=data["template_id"],
-            organization_id=data["organization_id"],
-            status="scheduled" if data.get("schedule_time") else "running",
-            schedule_time=datetime.fromisoformat(
-                data["schedule_time"]
-            ) if data.get("schedule_time") else None
+            campaign_name=data.campaign_name,
+            template_id=data.template_id,
+            organization_id=data.organization_id,
+            status="scheduled" if data.schedule_time else "running",
+            schedule_time=datetime.fromisoformat(data.schedule_time) if data.schedule_time else None
         )
 
         db.add(campaign)
@@ -184,7 +198,7 @@ def get_campaign_details(campaign_id: int):
         db.close()
 
 @router.put("/update/{campaign_id}")
-def update_campaign(campaign_id: int, data: dict):
+def update_campaign(campaign_id: int, data: CampaignUpdate = Body(...)):
     db = SessionLocal()
     try:
         campaign = db.query(Campaign).filter(
@@ -192,36 +206,33 @@ def update_campaign(campaign_id: int, data: dict):
         ).first()
 
         if not campaign:
+            db.close()
             return {
                 "success": False,
                 "error": "Campaign not found"
             }
 
-        # Update campaign name if provided
-        if "campaign_name" in data:
-            campaign.campaign_name = data["campaign_name"]
+        if data.campaign_name is not None:
+            campaign.campaign_name = data.campaign_name
 
-        # Update template if provided
-        if "template_id" in data:
+        if data.template_id is not None:
             template = db.query(Template).filter(
-                Template.id == data["template_id"]
+                Template.id == data.template_id
             ).first()
             if not template:
+                db.close()
                 return {
                     "success": False,
                     "error": "Template not found"
                 }
-            campaign.template_id = data["template_id"]
+            campaign.template_id = data.template_id
 
-        # Update contacts if provided
-        if "contact_ids" in data:
-            # Delete existing campaign contacts
+        if data.contact_ids is not None:
             db.query(CampaignContact).filter(
                 CampaignContact.campaign_id == campaign_id
             ).delete()
 
-            # Add new campaign contacts
-            for contact_id in data["contact_ids"]:
+            for contact_id in data.contact_ids:
                 campaign_contact = CampaignContact(
                     campaign_id=campaign_id,
                     contact_id=contact_id
