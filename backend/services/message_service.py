@@ -1,16 +1,12 @@
 from __future__ import annotations
-from typing import Optional
 from datetime import datetime
-from sqlalchemy.orm import Session, joinedload
-from models.postgres_model import WhatsAppInboxMessage
 from typing import Optional
-from datetime import datetime
+
 import httpx
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from sqlalchemy.orm import Session
-from services.whatsapp_service import WhatsAppRepository
+from core.config import settings as config
 from models.postgres_model import WhatsAppInboxMessage
 from schemas.whatsapp_inbox import (
     SendTextMessageRequest,
@@ -19,6 +15,7 @@ from schemas.whatsapp_inbox import (
     MessageListResponse,
     MessageResponse,
 )
+from services.whatsapp_service import WhatsAppRepository
 import services.socket_service as socket_svc
 
 class MessageService:
@@ -33,6 +30,11 @@ class MessageService:
         meta_api_version = getattr(config, "META_API_VERSION", "v23.0")
         return f"{meta_base_url}/{meta_api_version}/{phone_number_id}/messages"
 
+    @staticmethod
+    def _normalize_phone(phone: str) -> str:
+        """Strip +, spaces and dashes — Meta requires E.164 without the plus sign."""
+        return phone.replace("+", "").replace(" ", "").replace("-", "").strip()
+
     def _post_to_meta(
         self, phone_number_id: str, access_token: str, payload: dict
     ) -> dict:
@@ -44,30 +46,41 @@ class MessageService:
         with httpx.Client(timeout=30.0) as client:
             try:
                 resp = client.post(url, json=payload, headers=headers)
-                text = resp.text
                 resp.raise_for_status()
                 return resp.json()
             except httpx.HTTPStatusError as e:
-                status_code = e.response.status_code if e.response is not None else None
-                text = e.response.text if e.response is not None else str(e)
-                if status_code == 401 and e.response is not None:
-                    try:
-                        error_json = e.response.json()
-                        error_data = error_json.get("error", {})
-                        if error_data.get("code") == 190:
-                            self._deactivate_invalid_account(phone_number_id)
-                            raise HTTPException(
-                                status_code=status.HTTP_400_BAD_REQUEST,
-                                detail=(
-                                    "WhatsApp access token is invalid or expired. "
-                                    "Please reconnect your WhatsApp account."
-                                ),
-                            )
-                    except ValueError:
-                        pass
+                response = e.response
+                status_code = response.status_code if response is not None else None
+                try:
+                    body = response.json() if response is not None else {}
+                except ValueError:
+                    body = {"error": response.text if response is not None else str(e)}
+
+                error_data = None
+                error_message = None
+                if isinstance(body, dict):
+                    error_data = body.get("error")
+                    if isinstance(error_data, dict):
+                        error_message = error_data.get("message")
+                if not error_message:
+                    error_message = body.get("error") if isinstance(body, dict) else None
+                if not error_message:
+                    error_message = response.text if response is not None else str(e)
+
+                if status_code == 401 and isinstance(error_data, dict):
+                    if error_data.get("code") == 190:
+                        self._deactivate_invalid_account(phone_number_id)
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=(
+                                "WhatsApp access token is invalid or expired. "
+                                "Please reconnect your WhatsApp account."
+                            ),
+                        )
+
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Meta API error: {text}",
+                    detail=f"Meta API error ({status_code}): {error_message}",
                 )
             except httpx.RequestError as e:
                 raise HTTPException(
@@ -105,7 +118,7 @@ class MessageService:
 
         payload = {
             "messaging_product": "whatsapp",
-            "to": conv.customer_phone,
+            "to": self._normalize_phone(conv.customer_phone).replace("+", "").replace(" ", "").replace("-", ""),
             "type": "text",
             "text": {"body": request.content, "preview_url": False},
         }
@@ -158,7 +171,7 @@ class MessageService:
 
         payload = {
             "messaging_product": "whatsapp",
-            "to": conv.customer_phone,
+            "to": self._normalize_phone(conv.customer_phone),
             "type": "image",
             "image": image_obj,
         }
@@ -202,7 +215,7 @@ class MessageService:
 
         payload = {
             "messaging_product": "whatsapp",
-            "to": conv.customer_phone,
+            "to": self._normalize_phone(conv.customer_phone),
             "type": "video",
             "video": video_obj,
         }
@@ -243,7 +256,7 @@ class MessageService:
 
         payload = {
             "messaging_product": "whatsapp",
-            "to": conv.customer_phone,
+            "to": self._normalize_phone(conv.customer_phone),
             "type": "audio",
             "audio": audio_obj,
         }
@@ -287,7 +300,7 @@ class MessageService:
 
         payload = {
             "messaging_product": "whatsapp",
-            "to": conv.customer_phone,
+            "to": self._normalize_phone(conv.customer_phone),
             "type": "document",
             "document": doc_obj,
         }
@@ -329,7 +342,7 @@ class MessageService:
 
         payload = {
             "messaging_product": "whatsapp",
-            "to": conv.customer_phone,
+            "to": self._normalize_phone(conv.customer_phone),
             "type": "template",
             "template": template_obj,
         }

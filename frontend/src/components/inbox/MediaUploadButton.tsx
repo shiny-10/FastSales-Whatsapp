@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Paperclip, Image, Film, FileText, Music, Loader2 } from "lucide-react";
+import { Paperclip, Image as ImageIcon, Film, FileText, Music, Loader2 } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -24,10 +24,10 @@ const ACCEPT_MAP: Record<MediaCategory, string> = {
 };
 
 const MENU_ITEMS: Array<{ type: MediaCategory; icon: React.ReactNode; label: string }> = [
-  { type: "image",    icon: <Image className="h-4 w-4" />,    label: "Image" },
-  { type: "video",    icon: <Film className="h-4 w-4" />,     label: "Video" },
-  { type: "audio",    icon: <Music className="h-4 w-4" />,    label: "Audio" },
-  { type: "document", icon: <FileText className="h-4 w-4" />, label: "Document" },
+  { type: "image",    icon: <ImageIcon className="h-4 w-4" aria-hidden="true" />,    label: "Image" },
+  { type: "video",    icon: <Film className="h-4 w-4" aria-hidden="true" />,     label: "Video" },
+  { type: "audio",    icon: <Music className="h-4 w-4" aria-hidden="true" />,    label: "Audio" },
+  { type: "document", icon: <FileText className="h-4 w-4" aria-hidden="true" />, label: "Document" },
 ];
 
 export function MediaUploadButton({ conversationId, onSent, onPreview }: MediaUploadButtonProps) {

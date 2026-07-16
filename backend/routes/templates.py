@@ -93,21 +93,38 @@ async def create_template(request: Request, file: UploadFile = File(None)):
         db.commit()
         db.refresh(template)
 
-        # Call meta template service asynchronously if needed
+        # Call Meta template service — failure is non-blocking (save locally regardless)
+        meta_warning = None
         try:
             meta_result = meta_template_service.create_template(
                 template_name=template.template_name,
                 category=template.category,
                 language=template.language,
-                body=template.template_body
+                body=template.template_body,
             )
-            if meta_result.get("id"):
-                template.meta_template_id = meta_result["id"]
+
+            if meta_result.get("success"):
+                template.meta_template_id = str(meta_result.get("id"))
                 template.meta_template_name = template.template_name
                 template.meta_status = meta_result.get("status", "PENDING")
-                db.commit()
+            else:
+                template.meta_status = "PENDING"
+                # Extract a readable error from Meta's response
+                meta_err = meta_result.get("error", {})
+                if isinstance(meta_err, dict):
+                    meta_warning = (
+                        meta_err.get("error_user_msg")
+                        or meta_err.get("message")
+                        or meta_err.get("error_data", {}).get("details")
+                        or str(meta_err)
+                    )
+                else:
+                    meta_warning = str(meta_err)
+            db.commit()
         except Exception as e:
-            print(f"Meta template creation failed: {e}")
+            template.meta_status = "PENDING"
+            meta_warning = str(e)
+            db.commit()
 
         # Log the activity
         log_activity(
@@ -119,11 +136,14 @@ async def create_template(request: Request, file: UploadFile = File(None)):
             organization_id=organization_id
         )
 
-        return {
+        response_data = {
             "success": True,
             "template_id": template.id,
-            "meta_response": {}
         }
+        if meta_warning:
+            response_data["warning"] = f"Template saved locally. Meta submission: {meta_warning}"
+
+        return response_data
 
     except Exception as e:
         return {
@@ -162,7 +182,7 @@ def get_templates():
             "status": t.meta_status or "PENDING",
             "organization_id": t.organization_id,
             "organization_name": org.name if org else None,
-            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "created_at": t.created_at.isoformat() + "Z" if t.created_at else None,
             "meta_status": t.meta_status or "PENDING"
         })
 
@@ -264,84 +284,70 @@ def sync_template_status(template_id: Optional[int] = None):
         templates = templates_query.all()
 
     for template in templates:
-        if not template.meta_template_id:
-            # Attempt to create the meta template automatically
-            try:
+        try:
+            # Always look up by name — more reliable than by ID
+            sanitized_name = (template.template_name or "").lower().replace(" ", "_").replace("-", "_")
+            meta_response = meta_template_service.get_template_status_by_name(sanitized_name)
+
+            if meta_response.get("error"):
+                # Name not found on Meta — template may not have been submitted yet
+                # Try to submit it now
                 created = meta_template_service.create_template(
-                    template_name=template.template_name,
+                    template_name=sanitized_name,
                     category=template.category,
                     language=template.language,
                     body=template.template_body,
                 )
-
                 new_id = created.get("id") or created.get("template_id")
                 if new_id:
                     template.meta_template_id = str(new_id)
-                    template.meta_template_name = template.template_name
-                    template.meta_status = created.get("status") or template.meta_status or "PENDING"
+                    template.meta_template_name = sanitized_name
+                    template.meta_status = created.get("status") or "PENDING"
                     db.commit()
-                    # proceed to fetch status below using the new meta_template_id
-                else:
-                    # creation did not return an id; mark as locally pending and continue
-                    template.meta_status = template.meta_status or "PENDING"
-                    db.commit()
+                    log_activity(db, action="synced",
+                        template_id=template.id, template_name=template.template_name,
+                        status=template.meta_status, organization_id=template.organization_id)
                     results.append({
-                        "template_id": template.id,
+                        "success": True, "template_id": template.id,
                         "template_name": template.template_name,
-                        "success": False,
-                        "message": "Meta template creation failed",
-                        "meta_response": created,
                         "meta_status": template.meta_status,
+                        "message": f"Submitted to Meta — status: {template.meta_status}",
                     })
-                    continue
-            except Exception as e:
-                # mark as pending locally and return error message
-                template.meta_status = template.meta_status or "PENDING"
-                try:
-                    db.commit()
-                except Exception:
-                    pass
-                results.append({
-                    "template_id": template.id,
-                    "template_name": template.template_name,
-                    "success": False,
-                    "message": f"Meta template creation error: {e}",
-                    "meta_status": template.meta_status,
-                })
-                continue
-
-        try:
-            meta_response = meta_template_service.get_template_status(
-                template.meta_template_id
-            )
-
-            if meta_response.get("status"):
-                template.meta_status = meta_response["status"]
+                else:
+                    meta_err = created.get("error", {})
+                    if isinstance(meta_err, dict):
+                        err_msg = (meta_err.get("error_user_msg") or meta_err.get("message")
+                                   or meta_err.get("error_data", {}).get("details") or str(meta_err))
+                    else:
+                        err_msg = str(meta_err) or "Unknown Meta error"
+                    results.append({
+                        "success": False, "template_id": template.id,
+                        "template_name": template.template_name,
+                        "message": f"Meta rejected: {err_msg}",
+                        "meta_status": template.meta_status or "PENDING",
+                    })
+            else:
+                # Got status back — update local record
+                new_status = meta_response.get("status", template.meta_status)
+                meta_id = meta_response.get("id")
+                template.meta_status = new_status
+                if meta_id:
+                    template.meta_template_id = str(meta_id)
                 db.commit()
-
-                # Log the sync activity
-                log_activity(
-                    db,
-                    action="synced",
-                    template_id=template.id,
-                    template_name=template.template_name,
-                    status=template.meta_status,
-                    organization_id=template.organization_id
-                )
-
-            results.append({
-                "success": True,
-                "template_id": template.id,
-                "template_name": template.template_name,
-                "meta_status": template.meta_status,
-                "meta_response": meta_response
-            })
+                log_activity(db, action="synced",
+                    template_id=template.id, template_name=template.template_name,
+                    status=template.meta_status, organization_id=template.organization_id)
+                results.append({
+                    "success": True, "template_id": template.id,
+                    "template_name": template.template_name,
+                    "meta_status": template.meta_status,
+                    "message": f"Status updated: {template.meta_status}",
+                })
         except Exception as e:
             results.append({
-                "success": False,
-                "template_id": template.id,
+                "success": False, "template_id": template.id,
                 "template_name": template.template_name,
-                "message": str(e)
+                "message": str(e),
             })
 
     db.close()
@@ -366,8 +372,8 @@ def get_recent_activities(limit: int = 5):
                 "template_id": activity.template_id,
                 "template_name": activity.template_name,
                 "status": activity.status,
-                "created_at": activity.created_at.isoformat() if activity.created_at else None,
-                "timestamp": activity.created_at.isoformat() if activity.created_at else None
+                "created_at": activity.created_at.isoformat() + "Z" if activity.created_at else None,
+                "timestamp": activity.created_at.isoformat() + "Z" if activity.created_at else None
             })
 
         db.close()

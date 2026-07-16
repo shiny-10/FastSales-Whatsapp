@@ -1,14 +1,12 @@
 from __future__ import annotations
-from core.config import settings
-from typing import Optional
-from sqlalchemy.orm import Session
-from models.postgres_model import WhatsAppInboxMediaFile
 from typing import Optional
 import httpx
 import boto3
 from botocore.exceptions import ClientError
 from sqlalchemy.orm import Session
 
+from core.config import settings
+from core.config import settings as config
 from models.postgres_model import WhatsAppInboxMediaFile
 
 class MediaService:

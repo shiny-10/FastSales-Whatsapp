@@ -1,882 +1,379 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import StatsCard from "../../components/StatsCard";
-
+import { Plus, Edit2, Trash2, RefreshCw, CheckCircle, Clock, XCircle, FileText, X, Activity } from "lucide-react";
 import {
-  getTemplates,
-  createTemplate,
-  updateTemplate,
-  deleteTemplate,
-  syncTemplateStatus,
-  getRecentActivities,
+  getTemplates, createTemplate, updateTemplate,
+  deleteTemplate, syncTemplateStatus, getRecentActivities,
 } from "../../services/templateService";
 import { getOrganizations } from "../../services/organizationService";
+import StatsCard from "../../components/StatsCard";
+
+const glass = { background: "linear-gradient(145deg,rgba(255,255,255,0.055) 0%,rgba(255,255,255,0.015) 100%)", border: "1px solid rgba(255,255,255,0.08)" } as const;
+const inputStyle = { background: "rgba(255,255,255,0.06)", border: "1.5px solid rgba(255,255,255,0.09)", color: "white", borderRadius: "10px", padding: "9px 14px", width: "100%", fontSize: "13px", outline: "none" } as const;
+const labelStyle = { fontSize: "11px", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(255,255,255,0.4)", marginBottom: "6px", display: "block" };
+
+function StatusBadge({ status }: { status: string }) {
+  const s = status.toUpperCase();
+  const cfg = s === "APPROVED" ? { bg: "rgba(16,185,129,0.15)", color: "#10b981", icon: CheckCircle }
+    : s === "REJECTED" ? { bg: "rgba(239,68,68,0.15)", color: "#f87171", icon: XCircle }
+    : { bg: "rgba(245,158,11,0.15)", color: "#f59e0b", icon: Clock };
+  const Icon = cfg.icon;
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: cfg.bg, color: cfg.color }}>
+      <Icon className="w-3 h-3" />{s}
+    </span>
+  );
+}
+
 export default function TemplatesPage() {
-  console.log("TEMPLATES PAGE LOADED");
   const [templates, setTemplates] = useState<any[]>([]);
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [filterStatus, setFilterStatus] = useState("all");
   const [notification, setNotification] = useState({ type: "", message: "" });
   const [isLoading, setIsLoading] = useState(false);
   const [syncingIds, setSyncingIds] = useState<number[]>([]);
-
   const [showModal, setShowModal] = useState(false);
-
-  const [editingId, setEditingId] = useState(null);
-
-  const [templateData, setTemplateData] = useState({
-    template_name: "",
-    category: "MARKETING",
-    language: "en_US",
-    header: "none",
-    template_body: "",
-    footer: "",
-    buttons: [] as any[],
-    organization_id: 1,
-    header_url: null as string | null,
-  });
+  const [editingId, setEditingId] = useState<any>(null);
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [headerFile, setHeaderFile] = useState<File | null>(null);
   const [headerPreviewUrl, setHeaderPreviewUrl] = useState<string | null>(null);
-
-  const loadOrganizations = async () => {
-    try {
-      const data = await getOrganizations();
-      setOrganizations(data || []);
-    } catch (error) {
-      console.error("Failed to load organizations", error);
-    }
-  };
-
-  const loadTemplates = async () => {
-    try {
-      setIsLoading(true);
-
-      const data = await getTemplates();
-
-      console.log("Templates API Response:", data);
-
-      setTemplates(data);
-
-    } catch (error) {
-      console.error("Template Error:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const fetchRecentActivities = async () => {
-    try {
-      const data = await getRecentActivities(10);
-      setRecentActivities(data);
-    } catch (error) {
-      console.error(error);
-      // Don't show error notification for activities as it's not critical
-    }
-  };
+  const [templateData, setTemplateData] = useState({
+    template_name: "", category: "MARKETING", language: "en_US",
+    header: "none", template_body: "", footer: "",
+    buttons: [] as any[], organization_id: 1, header_url: null as string | null,
+  });
 
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchData = async () => {
+    let alive = true;
+    (async () => {
       try {
-        const [templatesData, activitiesData, orgsData] = await Promise.all([
-            getTemplates(),
-            getRecentActivities(10),
-            getOrganizations(),
-          ]);
-
-        if (!isMounted) {
-          return;
-        }
-
-        setTemplates(templatesData);
-        setRecentActivities(activitiesData);
-        setOrganizations(orgsData || []);
-      } catch (error) {
-        console.error(error);
-      }
-    };
-
-    void fetchData();
-
-    return () => {
-      isMounted = false;
-    };
+        const [td, ad, od] = await Promise.all([getTemplates(), getRecentActivities(10), getOrganizations()]);
+        if (!alive) return;
+        setTemplates(td); setRecentActivities(ad); setOrganizations(od || []);
+      } catch { /* ignore */ }
+    })();
+    return () => { alive = false; };
   }, []);
 
-  const showNotification = (type: any, message: any) => {
+  const notify = (type: string, message: string) => {
     setNotification({ type, message });
-    setTimeout(() => {
-      setNotification({ type: "", message: "" });
-    }, 3000);
+    setTimeout(() => setNotification({ type: "", message: "" }), 3000);
   };
 
-  const getFilteredTemplates = () => {
-    if (filterStatus === "all") {
-      return templates;
-    }
-    return templates.filter((t) => {
-      const status = (t.status || t.meta_status || "PENDING").toLowerCase();
-      return status === filterStatus.toLowerCase();
-    });
-  };
+  const filtered = filterStatus === "all" ? templates
+    : templates.filter(t => (t.status || t.meta_status || "PENDING").toLowerCase() === filterStatus);
 
-  const handleSaveTemplate = async () => {
-    try {
-      if (!templateData.template_name.trim()) {
-        showNotification("error", "Template name is required");
-        return;
-      }
-
-      setIsLoading(true);
-
-      if (editingId) {
-        await updateTemplate(editingId, templateData);
-        showNotification("success", "Template updated successfully!");
-      } else {
-        // If a file was selected, send as multipart/form-data
-        if (headerFile) {
-          const formData = new FormData();
-          formData.append("template_name", templateData.template_name);
-          formData.append("category", templateData.category);
-          formData.append("language", templateData.language);
-          formData.append("header", templateData.header);
-          formData.append("template_body", templateData.template_body);
-          if (templateData.footer) formData.append("footer", templateData.footer);
-          formData.append("organization_id", String(templateData.organization_id));
-          formData.append("buttons", JSON.stringify(templateData.buttons || []));
-          formData.append("file", headerFile);
-
-          await createTemplate(formData);
-        } else {
-          await createTemplate(templateData);
-        }
-        showNotification("success", "Template created successfully!");
-      }
-
-      setTemplateData({
-        template_name: "",
-        category: "MARKETING",
-        language: "en_US",
-        header: "none",
-        template_body: "",
-        footer: "",
-        buttons: [] as any[],
-        organization_id: 1,
-    header_url: null as string | null,
-      });
-
-      setHeaderFile(null);
-      setHeaderPreviewUrl(null);
-
-      setEditingId(null);
-      setShowModal(false);
-      await loadTemplates();
-      await fetchRecentActivities();
-    } catch (error) {
-      console.error(error);
-      showNotification(
-        "error",
-        ((error as Error).message) || "Failed to save template. Please try again."
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleEditTemplate = (template: any) => {
-    setTemplateData({
-      template_name: template.template_name,
-      category: template.category,
-      language: template.language,
-      header: template.header || "none",
-      template_body: template.template_body,
-      footer: template.footer || "",
-      buttons: template.buttons || [],
-      organization_id: template.organization_id || 1,
-      header_url: template.header_url || null,
-    });
-
-    setEditingId(template.id);
-
-    setHeaderFile(null);
-    setHeaderPreviewUrl(template.header_url || null);
-    setShowModal(true);
-  };  
-  
-
-  const handleDeleteTemplate = async (id: any) => {
-    if (!confirm("Are you sure you want to delete this template?")) {
-      return;
-    }
-
-    try {
-      await deleteTemplate(id);
-      showNotification("success", "Template deleted successfully!");
-      await loadTemplates();
-      await fetchRecentActivities();
-    } catch (error) {
-      console.error(error);
-      showNotification(
-        "error",
-        ((error as Error).message) || "Failed to delete template. Please try again."
-      );
-    }
-  };
-
-  const handleSyncStatus = async (id: any) => {
-    try {
-      const tid = Number(id);
-      // mark syncing
-      setSyncingIds((s) => (s.includes(tid) ? s : [...s, tid]));
-
-      const result = await syncTemplateStatus(id);
-
-      // Backend returns { results: [...] } for bulk or single sync
-      let item: any = null;
-      if (result && result.results) {
-        item = result.results.find((r: any) => Number(r.template_id) === tid) || result.results[0];
-      } else if (result && result.template_id) {
-        item = result;
-      }
-
-      if (item) {
-        // If backend returned a meta_status, update the row regardless of success flag
-        if (item.meta_status) {
-          setTemplates((prev) =>
-            prev.map((t) =>
-              Number(t.id) === tid ? { ...t, meta_status: item.meta_status || t.meta_status } : t
-            )
-          );
-        }
-
-        if (item.success) {
-          showNotification("success", `Template synced! Status: ${item.meta_status}`);
-        } else {
-          showNotification("error", item.message || "Failed to sync template");
-        }
-      } else {
-        showNotification("error", "No sync result returned");
-      }
-
-      // refresh recent activities after sync
-      await fetchRecentActivities();
-    } catch (error) {
-      console.error(error);
-      showNotification(
-        "error",
-        ((error as Error).message) || "Failed to sync template status. Please try again."
-      );
-    } finally {
-      const tid = Number(id);
-      setSyncingIds((s) => s.filter((x) => x !== tid));
-    }
-  };
-  // Calculate stats
   const stats = {
     total: templates.length,
-    approved: templates.filter(
-      (t) => (t.status || t.meta_status || "").toUpperCase() === "APPROVED"
-    ).length || 0,
-    pending: templates.filter(
-      (t) => (t.status || t.meta_status || "").toUpperCase() === "PENDING"
-    ).length || 0,
-    rejected: templates.filter(
-      (t) => (t.status || t.meta_status || "").toUpperCase() === "REJECTED"
-    ).length || 0,
+    approved: templates.filter(t => (t.status || t.meta_status || "").toUpperCase() === "APPROVED").length,
+    pending: templates.filter(t => (t.status || t.meta_status || "").toUpperCase() === "PENDING").length,
+    rejected: templates.filter(t => (t.status || t.meta_status || "").toUpperCase() === "REJECTED").length,
   };
 
+  const handleSave = async () => {
+    if (!templateData.template_name.trim()) { notify("error", "Template name is required"); return; }
+    setIsLoading(true);
+    try {
+      let result: any;
+      if (editingId) {
+        result = await updateTemplate(editingId, templateData);
+        notify("success", "Template updated!");
+      } else {
+        if (headerFile) {
+          const fd = new FormData();
+          Object.entries(templateData).forEach(([k, v]) => { if (v !== null) fd.append(k, typeof v === "object" ? JSON.stringify(v) : String(v)); });
+          fd.append("file", headerFile);
+          result = await createTemplate(fd);
+        } else {
+          result = await createTemplate(templateData);
+        }
+        // Template was saved — warn if Meta submission had an issue
+        if (result?.warning) {
+          notify("success", "✓ Template saved locally (Meta approval pending)");
+        } else {
+          notify("success", "✓ Template submitted to Meta for approval!");
+        }
+      }
+      setTemplateData({ template_name: "", category: "MARKETING", language: "en_US", header: "none", template_body: "", footer: "", buttons: [], organization_id: 1, header_url: null });
+      setHeaderFile(null); setHeaderPreviewUrl(null); setEditingId(null); setShowModal(false);
+      setTemplates(await getTemplates());
+    } catch (e: any) {
+      const msg = (e as Error).message || "Failed to save template";
+      notify("error", msg);
+    }
+    finally { setIsLoading(false); }
+  };
+
+  const handleEdit = (t: any) => {
+    setTemplateData({ template_name: t.template_name, category: t.category, language: t.language, header: t.header || "none", template_body: t.template_body, footer: t.footer || "", buttons: t.buttons || [], organization_id: t.organization_id || 1, header_url: t.header_url || null });
+    setEditingId(t.id); setHeaderPreviewUrl(t.header_url || null); setShowModal(true);
+  };
+
+  const handleDelete = async (id: any) => {
+    if (!confirm("Delete this template?")) return;
+    try { await deleteTemplate(id); notify("success", "Deleted!"); setTemplates(await getTemplates()); }
+    catch (e: any) { notify("error", (e as Error).message || "Failed to delete"); }
+  };
+
+  const handleSync = async (id: any) => {
+    const tid = Number(id);
+    setSyncingIds(s => [...s, tid]);
+    try {
+      const result = await syncTemplateStatus(id);
+      // result = { results: [...] }
+      const item: any = result?.results
+        ? (result.results.find((r: any) => Number(r.template_id) === tid) || result.results[0])
+        : result;
+
+      if (item?.meta_status) {
+        setTemplates(p => p.map(t => Number(t.id) === tid ? { ...t, meta_status: item.meta_status, status: item.meta_status } : t));
+      }
+
+      if (item?.success) {
+        notify("success", `Status: ${item.meta_status || "PENDING"} — ${item.message || "Synced with Meta"}`);
+      } else {
+        // Show the real Meta error — but template still exists locally
+        const errMsg = item?.message || "Could not reach Meta";
+        notify("error", errMsg);
+      }
+    } catch (e: any) {
+      notify("error", (e as Error).message || "Sync failed");
+    } finally {
+      setSyncingIds(s => s.filter(x => x !== tid));
+    }
+  };
+
+  const FILTER_TABS = [
+    { key: "all", label: "All", count: stats.total },
+    { key: "approved", label: "Approved", count: stats.approved },
+    { key: "pending", label: "Pending", count: stats.pending },
+    { key: "rejected", label: "Rejected", count: stats.rejected },
+  ];
+
   return (
-    <div className="p-8 bg-slate-100 min-h-screen">
-      {/* Notification Toast */}
+    <div className="min-h-screen p-6 space-y-6 animate-fade-up">
+      {/* Toast */}
       {notification.message && (
-        <div
-          className={`fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white font-semibold z-50 animation ${
-            notification.type === "success"
-              ? "bg-green-500"
-              : notification.type === "error"
-                ? "bg-red-500"
-                : "bg-blue-500"
-          }`}
-        >
+        <div className="fixed top-5 right-5 z-50 px-5 py-3 rounded-xl text-sm font-semibold text-white shadow-xl"
+          style={{ background: notification.type === "success" ? "linear-gradient(135deg,#059669,#10b981)" : "linear-gradient(135deg,#e11d48,#f43f5e)" }}>
           {notification.message}
         </div>
       )}
 
       {/* Header */}
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold">Templates</h1>
-          <p className="text-gray-500 mt-2">
-            Manage and track your WhatsApp message templates.
-          </p>
+          <h1 className="text-3xl font-bold text-white">Templates</h1>
+          <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>Manage your WhatsApp message templates</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="bg-[#25D366] text-white px-6 py-3 rounded-lg font-semibold"
-        >
-          + Create Template
+        <button onClick={() => setShowModal(true)} className="btn-glow flex items-center gap-2 text-sm">
+          <Plus size={15} /> Create Template
         </button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        <StatsCard
-          title="Total Templates"
-          value={stats.total}
-          icon="📋"
-          change="8.3% from last month"
-        />
-        <StatsCard
-          title="Approved"
-          value={stats.approved}
-          icon="✓"
-          change="10.2% from last month"
-        />
-        <StatsCard
-          title="Pending"
-          value={stats.pending}
-          icon="⏳"
-          change="12.5% from last month"
-        />
-        <StatsCard
-          title="Rejected"
-          value={stats.rejected}
-          icon="✕"
-          change="5.1% from last month"
-        />
+      {/* Stats */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatsCard title="Total Templates" value={stats.total} icon={<FileText size={18} />} gradient="linear-gradient(135deg,#7c3aed,#4f46e5)" glowClass="ring-violet" />
+        <StatsCard title="Approved" value={stats.approved} icon={<CheckCircle size={18} />} gradient="linear-gradient(135deg,#10b981,#059669)" glowClass="ring-emerald" />
+        <StatsCard title="Pending" value={stats.pending} icon={<Clock size={18} />} gradient="linear-gradient(135deg,#f59e0b,#d97706)" glowClass="ring-amber" />
+        <StatsCard title="Rejected" value={stats.rejected} icon={<XCircle size={18} />} gradient="linear-gradient(135deg,#f43f5e,#e11d48)" glowClass="ring-rose" />
       </div>
 
-      {/* Main Content */}
-      <div className="grid grid-cols-2 gap-8 mb-8">
-        {/* Table Section - takes 1 column with scrolling */}
-        <div className="col-span-1 bg-white rounded-2xl shadow-md p-6 flex flex-col">
-          <div className="mb-6">
-            <h2 className="text-xl font-bold mb-4">All Templates</h2>
-            <div className="flex gap-4 mb-4 flex-wrap">
-              <button
-                onClick={() => setFilterStatus("all")}
-                className={`px-4 py-2 text-sm rounded-lg font-semibold transition-colors ${
-                  filterStatus === "all"
-                    ? "bg-[#25D366] text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                All Templates
+      {/* Main grid */}
+      <div className="grid xl:grid-cols-3 gap-5">
+        {/* Table */}
+        <div className="xl:col-span-2 rounded-2xl overflow-hidden" style={glass}>
+          {/* Filter tabs */}
+          <div className="flex gap-1 p-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+            {FILTER_TABS.map(tab => (
+              <button key={tab.key} onClick={() => setFilterStatus(tab.key)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                style={{ background: filterStatus === tab.key ? "linear-gradient(135deg,#7c3aed,#4f46e5)" : "rgba(255,255,255,0.04)", color: filterStatus === tab.key ? "#fff" : "rgba(255,255,255,0.4)", boxShadow: filterStatus === tab.key ? "0 4px 12px rgba(124,58,237,0.4)" : "none" }}>
+                {tab.label}
+                <span className="px-1.5 py-0.5 rounded-full text-[10px]" style={{ background: filterStatus === tab.key ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)" }}>{tab.count}</span>
               </button>
-              <button
-                onClick={() => setFilterStatus("approved")}
-                className={`px-4 py-2 text-sm rounded-lg font-semibold transition-colors ${
-                  filterStatus === "approved"
-                    ? "bg-[#25D366] text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                Approved ({stats.approved})
-              </button>
-              <button
-                onClick={() => setFilterStatus("pending")}
-                className={`px-4 py-2 text-sm rounded-lg font-semibold transition-colors ${
-                  filterStatus === "pending"
-                    ? "bg-[#25D366] text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                Pending ({stats.pending})
-              </button>
-              <button
-                onClick={() => setFilterStatus("rejected")}
-                className={`px-4 py-2 text-sm rounded-lg font-semibold transition-colors ${
-                  filterStatus === "rejected"
-                    ? "bg-[#25D366] text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                Rejected ({stats.rejected})
-              </button>
-            </div>
+            ))}
           </div>
-          {/* Scrollable Table Container */}
-          <div className="flex-1 overflow-y-auto max-h-[600px]">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-white">
-                <tr className="border-b">
-                  <th className="text-left py-3 font-semibold">Template Name</th>
-                  <th className="text-left py-3 font-semibold">Category</th>
-                  <th className="text-left py-3 font-semibold">Language</th>
-                  <th className="text-left py-3 font-semibold">Status</th>
-                  <th className="text-left py-3 font-semibold">Created At</th>
-                  <th className="text-left py-3 font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+
+          <table className="data-table">
+            <thead>
+              <tr><th>Template</th><th>Category</th><th>Language</th><th>Status</th><th>Created</th><th className="text-center">Actions</th></tr>
+            </thead>
+            <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-gray-500">
-                    <div className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-500 mr-3"></div>
-                      Loading templates...
+                <tr><td colSpan={6} className="text-center py-12" style={{ color: "rgba(255,255,255,0.3)" }}>Loading templates…</td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={6} className="text-center py-12" style={{ color: "rgba(255,255,255,0.25)" }}>No templates found</td></tr>
+              ) : filtered.map(t => (
+                <tr key={t.id}>
+                  <td><span className="text-white font-medium">{t.template_name}</span></td>
+                  <td>{t.category}</td>
+                  <td>{t.language}</td>
+                  <td><StatusBadge status={t.status || t.meta_status || "PENDING"} /></td>
+                  <td>{t.created_at ? new Date(t.created_at).toLocaleDateString() : "—"}</td>
+                  <td>
+                    <div className="flex items-center justify-center gap-2">
+                      {[
+                        { Icon: Edit2, fn: () => handleEdit(t), col: "#a78bfa" },
+                        { Icon: Trash2, fn: () => handleDelete(t.id), col: "#f43f5e" },
+                        { Icon: RefreshCw, fn: () => handleSync(t.id), col: "#10b981", spin: syncingIds.includes(Number(t.id)) },
+                      ].map(({ Icon, fn, col, spin }, k) => (
+                        <button key={k} onClick={fn}
+                          className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
+                          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.07)" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = col + "22")}
+                          onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
+                          <Icon size={13} style={{ color: col }} className={(spin as any) ? "animate-spin" : ""} />
+                        </button>
+                      ))}
                     </div>
                   </td>
                 </tr>
-              ) : getFilteredTemplates().length > 0 ? (
-                getFilteredTemplates().map((template) => (
-                <tr key={template.id} className="border-b hover:bg-gray-50">
-                  <td className="py-4">{template.template_name}</td>
-                  <td className="py-4">{template.category}</td>
-                  <td className="py-4">{template.language}</td>
-                  <td className="py-4">
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                        (template.status || template.meta_status || "").toUpperCase() === "APPROVED"
-                          ? "bg-green-100 text-green-700"
-                          : (template.status || template.meta_status || "").toUpperCase() === "PENDING"
-                            ? "bg-yellow-100 text-yellow-700"
-                            : (template.status || template.meta_status || "").toUpperCase() === "REJECTED"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {(template.status || template.meta_status || "PENDING").toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="py-4 text-gray-600">
-                    {new Date(
-                      template.created_at || new Date()
-                    ).toLocaleDateString()}
-                  </td>
-                  <td className="py-4">
-                    <button
-                      onClick={() => handleEditTemplate(template)}
-                      className="text-blue-600 hover:text-blue-800 mr-3"
-                      title="Edit"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      onClick={() => handleDeleteTemplate(template.id)}
-                      className="text-red-600 hover:text-red-800 mr-3"
-                      title="Delete"
-                    >
-                      🗑
-                    </button>
-                    <button
-                      onClick={() => handleSyncStatus(template.id)}
-                      className="text-green-600 hover:text-green-800"
-                      title="Sync"
-                      disabled={syncingIds.includes(Number(template.id))}
-                    >
-                      {syncingIds.includes(Number(template.id)) ? (
-                        <span className="animate-spin inline-block">⟳</span>
-                      ) : (
-                        "⟳"
-                      )}
-                    </button>
-                  </td>
-                </tr>
-              ))
-              ) : (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-gray-500">
-                    No templates found for this filter.
-                  </td>
-                </tr>
-              )}
+              ))}
             </tbody>
-            </table>
-          </div>
+          </table>
         </div>
 
-        {/* Right Sidebar - Recent Activity Only */}
-        <div className="col-span-1 bg-white rounded-2xl shadow-md p-6 flex flex-col overflow-hidden">
-          <h2 className="text-xl font-bold mb-6">Recent Activity</h2>
-          {recentActivities.length > 0 ? (
-            <div className="space-y-4 overflow-y-auto max-h-[600px]">
-              {recentActivities.map((activity) => (
-                <div
-                  key={activity.id}
-                  className="flex items-center justify-between border-b pb-4"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-lg">
-                      {activity.action === "created" && "📝"}
-                      {activity.action === "updated" && "✏️"}
-                      {activity.action === "deleted" && "🗑️"}
-                      {activity.action === "synced" && "⟳"}
-                    </div>
-                    <div>
-                      <p className="font-semibold capitalize">{activity.action}</p>
-                      <p className="text-sm text-gray-600">
-                        Template: <strong>{activity.template_name}</strong>
-                      </p>
-                    </div>
+        {/* Recent activity */}
+        <div className="rounded-2xl p-5" style={glass}>
+          <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+            <Activity size={15} style={{ color: "#a78bfa" }} /> Recent Activity
+          </h3>
+          {recentActivities.length === 0 ? (
+            <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,0.25)" }}>No recent activity</p>
+          ) : (
+            <div className="space-y-3">
+              {recentActivities.map(a => (
+                <div key={a.id} className="flex items-start gap-3 py-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                  <span className="text-lg flex-shrink-0 mt-0.5">
+                    {a.action === "created" ? "📝" : a.action === "updated" ? "✏️" : a.action === "deleted" ? "🗑️" : "🔄"}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium capitalize text-white">{a.action}</p>
+                    <p className="text-xs truncate" style={{ color: "rgba(255,255,255,0.4)" }}>{a.template_name}</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold">
-                      {activity.status && activity.status.toUpperCase() === "APPROVED"
-                        ? "✓ Approved"
-                        : activity.status && activity.status.toUpperCase() === "REJECTED"
-                          ? "✕ Rejected"
-                          : "⏳ Pending"}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(activity.created_at).toLocaleTimeString()}
-                    </p>
+                  <div className="text-right flex-shrink-0">
+                    <StatusBadge status={a.status || "PENDING"} />
+                    <p className="text-[10px] mt-1" style={{ color: "rgba(255,255,255,0.3)" }}>{new Date(a.created_at).toLocaleTimeString()}</p>
                   </div>
                 </div>
               ))}
             </div>
-          ) : (
-            <p className="text-gray-500 text-center py-8">
-              No recent activity
-            </p>
           )}
-          <div className="mt-4 text-center pt-4 border-t">
-            <button className="text-green-600 hover:text-green-800 font-semibold text-sm">
-              View All Activity
-            </button>
-          </div>
         </div>
       </div>
 
+      {/* Create / Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-          <div className="bg-white rounded-2xl p-8 w-[1000px]">
-            <h2 className="text-2xl font-bold mb-6">
-              {editingId ? "Edit Template" : "Add Template"}
-            </h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(8px)" }}>
+          <div className="w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl" style={{ background: "#13162b", border: "1px solid rgba(255,255,255,0.1)" }}>
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+              <h2 className="text-lg font-semibold text-white">{editingId ? "Edit Template" : "Create Template"}</h2>
+              <button onClick={() => setShowModal(false)} style={{ color: "rgba(255,255,255,0.4)" }}><X size={18} /></button>
+            </div>
 
-            <div className="grid grid-cols-2 gap-8">
-              {/* LEFT SIDE FORM */}
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold mb-2">Template Name</label>
-                  <input
-                    type="text"
-                    placeholder="Template Name"
-                    value={templateData.template_name}
-                    onChange={(e) =>
-                      setTemplateData({
-                        ...templateData,
-                        template_name: e.target.value,
-                      })
-                    }
-                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                  />
+            <div className="grid grid-cols-2 gap-0 max-h-[75vh] overflow-y-auto">
+              {/* Left — form */}
+              <div className="p-6 space-y-4" style={{ borderRight: "1px solid rgba(255,255,255,0.07)" }}>
+                <div><span style={labelStyle}>Template Name</span><input value={templateData.template_name} onChange={e => setTemplateData({ ...templateData, template_name: e.target.value })} placeholder="e.g. order_confirmation" style={inputStyle} className="placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none" />
+                  <p className="text-[11px] mt-1" style={{ color: "rgba(255,255,255,0.3)" }}>Lowercase, underscores only — e.g. <span style={{ color: "#a78bfa" }}>order_confirmation</span></p>
                 </div>
-
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-semibold mb-2">Category</label>
-                    <select
-                      value={templateData.category}
-                      onChange={(e) =>
-                        setTemplateData({
-                          ...templateData,
-                          category: e.target.value,
-                        })
-                      }
-                      className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                    >
-                      <option>MARKETING</option>
-                      <option>UTILITY</option>
-                      <option>AUTHENTICATION</option>
+                  <div><span style={labelStyle}>Category</span>
+                    <select value={templateData.category} onChange={e => setTemplateData({ ...templateData, category: e.target.value })} style={inputStyle} className="focus:outline-none">
+                      <option>MARKETING</option><option>UTILITY</option><option>AUTHENTICATION</option>
                     </select>
                   </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold mb-2">Language</label>
-                    <select
-                      value={templateData.language}
-                      onChange={(e) =>
-                        setTemplateData({
-                          ...templateData,
-                          language: e.target.value,
-                        })
-                      }
-                      className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                    >
-                      <option>en_US</option>
-                      <option>hi</option>
+                  <div><span style={labelStyle}>Language</span>
+                    <select value={templateData.language} onChange={e => setTemplateData({ ...templateData, language: e.target.value })} style={inputStyle} className="focus:outline-none">
+                      <option>en_US</option><option>hi</option>
                     </select>
                   </div>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-semibold mb-2">Organization</label>
-                  <select
-                    value={templateData.organization_id}
-                    onChange={(e) =>
-                      setTemplateData({
-                        ...templateData,
-                        organization_id: Number(e.target.value),
-                      })
-                    }
-                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                  >
-                    {organizations.length === 0 && <option value="">Select Organization</option>}
-                    {organizations.map((org) => (
-                      <option key={org.id} value={org.id}>
-                        {org.name}
-                      </option>
-                    ))}
+                <div><span style={labelStyle}>Organization</span>
+                  <select value={templateData.organization_id} onChange={e => setTemplateData({ ...templateData, organization_id: Number(e.target.value) })} style={inputStyle} className="focus:outline-none">
+                    {organizations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                   </select>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-semibold mb-2">Header</label>
-                  <select
-                    value={templateData.header}
-                    onChange={(e) =>
-                      setTemplateData({
-                        ...templateData,
-                        header: e.target.value,
-                      })
-                    }
-                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                  >
-                    <option value="none">none</option>
-                    <option value="text">text</option>
-                    <option value="image">image</option>
-                    <option value="video">video</option>
-                    <option value="document">document</option>
+                <div><span style={labelStyle}>Header</span>
+                  <select value={templateData.header} onChange={e => setTemplateData({ ...templateData, header: e.target.value })} style={inputStyle} className="focus:outline-none">
+                    <option value="none">None</option><option value="text">Text</option><option value="image">Image</option><option value="video">Video</option><option value="document">Document</option>
                   </select>
                 </div>
-
-                {/* File input when header is image/video/document */}
-                {templateData.header && templateData.header !== "none" && (
-                  <div>
-                    <label className="block text-sm font-semibold mb-2">Upload {templateData.header}</label>
-                    <input
-                      type="file"
-                      accept={
-                        templateData.header === "image"
-                          ? "image/*"
-                          : templateData.header === "video"
-                          ? "video/mp4"
-                          : ".pdf,.doc,.docx"
-                      }
-                      onChange={(e) => {
-                        const file = e.target.files && e.target.files[0];
-                        setHeaderFile(file || null);
-                        if (file) {
-                          try {
-                            const url = URL.createObjectURL(file);
-                            setHeaderPreviewUrl(url);
-                          } catch (err) {
-                            setHeaderPreviewUrl(null);
-                          }
-                        } else {
-                          setHeaderPreviewUrl(null);
-                        }
-                      }}
-                      className="w-full"
-                    />
+                {templateData.header !== "none" && (
+                  <div><span style={labelStyle}>Upload {templateData.header}</span>
+                    <input type="file" accept={templateData.header === "image" ? "image/*" : templateData.header === "video" ? "video/mp4" : ".pdf,.doc,.docx"}
+                      onChange={e => { const f = e.target.files?.[0] || null; setHeaderFile(f); setHeaderPreviewUrl(f ? URL.createObjectURL(f) : null); }}
+                      className="w-full text-sm" style={{ color: "rgba(255,255,255,0.6)" }} />
                   </div>
                 )}
-
-                <div>
-                  <label className="block text-sm font-semibold mb-2">Body Text</label>
-                  <textarea
-                    rows={6}
-                    placeholder="Type your template message here..."
-                    value={templateData.template_body}
-                    onChange={(e) =>
-                      setTemplateData({
-                        ...templateData,
-                        template_body: e.target.value,
-                      })
-                    }
-                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                  />
+                <div><span style={labelStyle}>Body Text</span>
+                  <textarea rows={5} placeholder="Type your message..." value={templateData.template_body} onChange={e => setTemplateData({ ...templateData, template_body: e.target.value })}
+                    style={{ ...inputStyle, resize: "none" }} className="placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none" />
                 </div>
-
-                <div>
-                  <label className="block text-sm font-semibold mb-2">Footer (optional)</label>
-                  <input
-                    type="text"
-                    placeholder="Optional footer text (max 60 chars)"
-                    value={templateData.footer}
-                    maxLength={60}
-                    onChange={(e) =>
-                      setTemplateData({
-                        ...templateData,
-                        footer: e.target.value,
-                      })
-                    }
-                    className="w-full border border-gray-300 rounded-lg px-4 py-3"
-                  />
+                <div><span style={labelStyle}>Footer (optional)</span>
+                  <input value={templateData.footer} maxLength={60} onChange={e => setTemplateData({ ...templateData, footer: e.target.value })} placeholder="Optional footer (max 60 chars)" style={inputStyle} className="placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none" />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-semibold mb-2">Buttons (optional)</label>
-                  <div className="space-y-3 max-h-[150px] overflow-y-auto">
-                    {templateData.buttons.map((btn, idx) => (
-                      <div key={idx} className="flex gap-2 items-end">
-                        <select
-                          value={btn.type}
-                          onChange={(e) => {
-                            const newButtons = [...templateData.buttons];
-                            newButtons[idx].type = e.target.value;
-                            setTemplateData({
-                              ...templateData,
-                              buttons: newButtons,
-                            });
-                          }}
-                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                        >
-                          <option value="QUICK_REPLY">QUICK_REPLY</option>
-                          <option value="CALL_TO_ACTION">CALL_TO_ACTION</option>
+                  <span style={labelStyle}>Buttons</span>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {templateData.buttons.map((btn, i) => (
+                      <div key={i} className="flex gap-2">
+                        <select value={btn.type} onChange={e => { const b = [...templateData.buttons]; b[i].type = e.target.value; setTemplateData({ ...templateData, buttons: b }); }}
+                          style={{ ...inputStyle, flex: 1, width: "auto" }} className="focus:outline-none text-xs">
+                          <option value="QUICK_REPLY">QUICK_REPLY</option><option value="CALL_TO_ACTION">CALL_TO_ACTION</option>
                         </select>
-                        <input
-                          type="text"
-                          placeholder="Button label"
-                          maxLength={20}
-                          value={btn.text}
-                          onChange={(e) => {
-                            const newButtons = [...templateData.buttons];
-                            newButtons[idx].text = e.target.value;
-                            setTemplateData({
-                              ...templateData,
-                              buttons: newButtons,
-                            });
-                          }}
-                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                        />
-                        <button
-                          onClick={() => {
-                            const newButtons = templateData.buttons.filter((_, i) => i !== idx);
-                            setTemplateData({
-                              ...templateData,
-                              buttons: newButtons,
-                            });
-                          }}
-                          className="text-red-600 hover:text-red-800 text-xl"
-                        >
-                          ×
-                        </button>
+                        <input value={btn.text} maxLength={20} placeholder="Label" onChange={e => { const b = [...templateData.buttons]; b[i].text = e.target.value; setTemplateData({ ...templateData, buttons: b }); }}
+                          style={{ ...inputStyle, flex: 1, width: "auto" }} className="placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none text-xs" />
+                        <button onClick={() => setTemplateData({ ...templateData, buttons: templateData.buttons.filter((_, j) => j !== i) })} style={{ color: "#f43f5e" }}><X size={15} /></button>
                       </div>
                     ))}
                   </div>
-                  <button
-                    onClick={() => {
-                      setTemplateData({
-                        ...templateData,
-                        buttons: [...templateData.buttons, { type: "QUICK_REPLY", text: "" }],
-                      });
-                    }}
-                    className="mt-2 text-sm text-green-600 hover:text-green-800 font-semibold"
-                  >
-                    + Add Button
-                  </button>
+                  <button onClick={() => setTemplateData({ ...templateData, buttons: [...templateData.buttons, { type: "QUICK_REPLY", text: "" }] })}
+                    className="mt-2 text-xs font-medium" style={{ color: "#a78bfa" }}>+ Add Button</button>
                 </div>
               </div>
 
-              {/* RIGHT SIDE PREVIEW */}
-              <div className="border rounded-xl overflow-hidden bg-gray-100">
-                <div className="bg-[#128C7E] text-white p-4 font-semibold">
-                  WhatsApp Preview
-                </div>
-                <div className="p-4 bg-[#efeae2] min-h-[600px] overflow-y-auto">
-                  <div className="bg-[#128C7E] text-white p-3 rounded-t-lg flex justify-between">
-                    <div>
-                      <div className="font-semibold">{(organizations.find(o => o.id === templateData.organization_id) || {}).name || 'Organization'}</div>
-                      <div className="text-xs">Online</div>
-                    </div>
-                    <div>⋮</div>
-                  </div>
-
-                  <div className="bg-white rounded-b-lg p-4 w-full shadow">
-                    {/* Header Section */}
-                    {templateData.header && templateData.header !== "none" && (
-                      <div className="mb-3 bg-gray-200 h-32 flex items-center justify-center rounded text-gray-600 text-sm">
-                        {/* If a local preview is available show it, otherwise show placeholder or remote URL */}
-                        {templateData.header === "image" && (headerPreviewUrl || templateData.header_url) ? (
-                          <div className="relative h-28 w-full">
-                            <Image
-                              loader={({ src }) => src}
-                              src={headerPreviewUrl || templateData.header_url || ""}
-                              alt="header"
-                              fill
-                              className="object-contain"
-                              unoptimized
-                            />
+              {/* Right — preview */}
+              <div className="p-6 space-y-4">
+                <span style={labelStyle}>Preview</span>
+                <div className="rounded-2xl overflow-hidden" style={{ background: "#efeae2" }}>
+                  <div className="px-3 py-2 text-xs font-semibold" style={{ background: "#128c7e", color: "white" }}>WhatsApp Preview</div>
+                  <div className="p-4 min-h-48">
+                    <div className="bg-white rounded-2xl rounded-tl-sm p-3 shadow-sm max-w-xs">
+                      {templateData.header !== "none" && (headerPreviewUrl || templateData.header_url) ? (
+                        templateData.header === "image" ? (
+                          <div className="relative h-28 w-full mb-2 rounded-lg overflow-hidden">
+                            <Image loader={({ src }) => src} src={headerPreviewUrl || templateData.header_url || ""} alt="header" fill className="object-cover" unoptimized />
                           </div>
-                        ) : templateData.header === "video" && (headerPreviewUrl || templateData.header_url) ? (
-                          <video controls className="max-h-28">
-                            <source src={headerPreviewUrl || templateData.header_url || ""} type="video/mp4" />
-                            Your browser does not support the video tag.
-                          </video>
-                        ) : templateData.header === "document" && (headerPreviewUrl || templateData.header_url) ? (
-                          // For documents, if it's a PDF show embed, otherwise show filename/link
-                          (headerPreviewUrl || templateData.header_url || '').endsWith('.pdf') ? (
-                            <iframe src={headerPreviewUrl || templateData.header_url || ""} className="w-full h-28" />
-                          ) : (
-                            <a href={headerPreviewUrl || templateData.header_url || ""} target="_blank" rel="noreferrer" className="text-sm text-blue-600">Open Document</a>
-                          )
-                        ) : (
-                          <div className="text-sm text-gray-600">[{templateData.header.toUpperCase()}]</div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Body Section */}
-                    <p className="whitespace-pre-wrap text-gray-800 mb-3">
-                      {(
-                        templateData.template_body ||
-                        "Type your template message here..."
-                      )
-                        .replace(/{{1}}/g, "Rahul")
-                        .replace(/{{2}}/g, "#12345")
-                        .replace(/{{3}}/g, "12-May-2026")}
-                    </p>
-
-                    {/* Footer Section */}
-                    {templateData.footer && (
-                      <p className="text-xs text-gray-500 border-t pt-2 mb-3">
-                        {templateData.footer}
+                        ) : <div className="h-12 rounded-lg mb-2 flex items-center justify-center text-xs" style={{ background: "#f0f0f0", color: "#666" }}>[{templateData.header}]</div>
+                      ) : null}
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                        {(templateData.template_body || "Your message here…").replace(/\{\{1\}\}/g, "Rahul").replace(/\{\{2\}\}/g, "#12345").replace(/\{\{3\}\}/g, "today")}
                       </p>
-                    )}
-
-                    {/* Buttons Section */}
-                    {templateData.buttons.length > 0 && (
-                      <div className="border-t pt-3 space-y-2">
-                        {templateData.buttons.map((btn, idx) => (
-                          <button
-                            key={idx}
-                            className="w-full bg-gray-100 border border-gray-300 text-gray-800 p-2 rounded text-sm hover:bg-gray-200"
-                            disabled
-                          >
-                            {btn.text || `Button ${idx + 1}`}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="text-right text-xs text-gray-400 mt-4">
-                      11:30 AM ✓✓
+                      {templateData.footer && <p className="text-xs text-gray-400 border-t mt-2 pt-1">{templateData.footer}</p>}
+                      {templateData.buttons.length > 0 && (
+                        <div className="border-t mt-2 pt-2 space-y-1">
+                          {templateData.buttons.map((btn, i) => (
+                            <div key={i} className="text-center text-xs py-1 rounded" style={{ color: "#128c7e", background: "#f0f0f0" }}>{btn.text || `Button ${i + 1}`}</div>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-right text-[10px] text-gray-400 mt-1">11:30 AM ✓✓</p>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => setShowModal(false)}
-                className="border border-gray-300 px-5 py-2 rounded-lg"
-              >
-                Cancel
-              </button>
 
-              <button
-                onClick={handleSaveTemplate}
-                disabled={isLoading}
-                className="bg-[#25D366] text-white px-5 py-2 rounded-lg hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-              >
-                {isLoading ? "Saving..." : "Save"}
+            {/* Footer */}
+            <div className="flex justify-end gap-3 px-6 py-4" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+              <button onClick={() => setShowModal(false)} className="px-4 py-2.5 rounded-xl text-sm"
+                style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.08)" }}>Cancel</button>
+              <button onClick={handleSave} disabled={isLoading} className="btn-glow text-sm px-5 py-2.5 disabled:opacity-60">
+                {isLoading ? "Saving…" : editingId ? "Update" : "Create"}
               </button>
             </div>
           </div>
@@ -885,3 +382,4 @@ export default function TemplatesPage() {
     </div>
   );
 }
+

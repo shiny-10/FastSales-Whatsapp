@@ -139,6 +139,17 @@ class SendTextMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=4096)
     reply_to_message_id: Optional[int] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_ids(cls, values: dict) -> dict:
+        for field in ("conversation_id", "reply_to_message_id"):
+            if field in values and values[field] is not None:
+                try:
+                    values[field] = int(values[field])
+                except (ValueError, TypeError):
+                    pass
+        return values
+
 class SendMediaMessageRequest(BaseModel):
     conversation_id: int
     message_type: MessageType
@@ -166,6 +177,18 @@ class SendMessageRequest(BaseModel):
     template_name: Optional[str] = None
     language_code: str = "en_US"
     components: Optional[list[dict]] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_ids(cls, values: dict) -> dict:
+        """Accept string IDs from the frontend and coerce them to int."""
+        for field in ("conversation_id", "reply_to_message_id"):
+            if field in values and values[field] is not None:
+                try:
+                    values[field] = int(values[field])
+                except (ValueError, TypeError):
+                    pass
+        return values
 
     @model_validator(mode="after")
     def validate_message_payload(self):

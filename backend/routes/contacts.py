@@ -90,7 +90,7 @@ def get_contacts(q: str = None, organization_id: int = None, status: str = None)
             "organization_id": c.organization_id,
             "organization_name": org_names.get(c.organization_id, "-"),
             "status": c.status,
-            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "created_at": c.created_at.isoformat() + "Z" if c.created_at else None,
         })
 
     db.close()

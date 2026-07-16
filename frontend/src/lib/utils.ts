@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { formatDistanceToNow, format, isToday, isYesterday } from "date-fns";
+import { format, isToday, isYesterday } from "date-fns";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -8,9 +8,9 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatMessageTime(dateStr: string): string {
   const date = new Date(dateStr);
-  if (isToday(date)) return format(date, "HH:mm");
-  if (isYesterday(date)) return `Yesterday ${format(date, "HH:mm")}`;
-  return format(date, "dd/MM/yyyy HH:mm");
+  if (isToday(date)) return format(date, "h:mm a");          // 3:45 PM
+  if (isYesterday(date)) return format(date, "h:mm a");      // Yesterday shows time in ConversationCard
+  return format(date, "dd/MM/yyyy");
 }
 
 export function formatDateSeparator(dateStr: string): string {
@@ -24,9 +24,17 @@ export function isSameDay(a: string, b: string): boolean {
   return format(new Date(a), "yyyy-MM-dd") === format(new Date(b), "yyyy-MM-dd");
 }
 
-export function formatLastSeen(dateStr?: string): string {
-  if (!dateStr) return "Never";
-  return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
+export function formatLastSeen(dateStr?: string | null): string {
+  if (!dateStr) return "last seen recently";
+  try {
+    const date = new Date(dateStr);
+    const timeStr = format(date, "h:mm a"); // e.g. 3:45 PM
+    if (isToday(date)) return `today at ${timeStr}`;
+    if (isYesterday(date)) return `yesterday at ${timeStr}`;
+    return `${format(date, "dd/MM/yyyy")} at ${timeStr}`;
+  } catch {
+    return "last seen recently";
+  }
 }
 
 export function getInitials(name?: string, phone?: string): string {

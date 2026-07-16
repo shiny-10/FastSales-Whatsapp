@@ -56,9 +56,9 @@ def create_campaign(data: CampaignCreate = Body(...)):
         db.refresh(campaign)
 
         # Scheduled Campaign
-        if data.get("schedule_time"):
+        if data.schedule_time:
 
-            for contact_id in data["contact_ids"]:
+            for contact_id in data.contact_ids:
 
                 campaign_contact = CampaignContact(
                     campaign_id=campaign.id,
@@ -77,7 +77,7 @@ def create_campaign(data: CampaignCreate = Body(...)):
 
         results = []
 
-        for contact_id in data["contact_ids"]:
+        for contact_id in data.contact_ids:
 
             contact = db.query(Contact).filter(
                 Contact.id == contact_id

@@ -1,12 +1,10 @@
 "use client";
-
 import { useState } from "react";
 import { Plus, Trash2, Loader2, Pencil, Check, X, ToggleLeft, ToggleRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  useAutoReplies, useCreateAutoReply, useUpdateAutoReply,
-  useDeleteAutoReply, type AutoReply,
-} from "@/hooks/use-auto-replies";
+import { useAutoReplies, useCreateAutoReply, useUpdateAutoReply, useDeleteAutoReply, type AutoReply } from "@/hooks/use-auto-replies";
+
+const inputStyle = { background: "rgba(255,255,255,0.06)", border: "1.5px solid rgba(255,255,255,0.09)", color: "white", borderRadius: "10px", padding: "9px 14px", width: "100%", fontSize: "13px", outline: "none" } as const;
+const labelStyle = { fontSize: "11px", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(255,255,255,0.4)", marginBottom: "6px", display: "block" };
 
 function AutoReplyForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
@@ -21,28 +19,35 @@ function AutoReplyForm({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-2xl border bg-card p-5 space-y-4">
-      <h3 className="font-semibold text-sm">New Auto Reply</h3>
+    <form onSubmit={handleSubmit} className="rounded-2xl p-5 space-y-4"
+      style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+      <h3 className="font-semibold text-white">New Auto Reply</h3>
+      {[{ label: "Name", value: name, set: setName, ph: "e.g. Welcome message", rows: 0 },
+        { label: "Message", value: message, set: setMessage, ph: "Hi! Thanks for reaching out…", rows: 3 }].map(({ label, value, set, ph, rows }) => (
+        <div key={label}>
+          <span style={labelStyle}>{label}</span>
+          {rows === 0
+            ? <input value={value} onChange={e => set(e.target.value)} required placeholder={ph} style={inputStyle}
+                className="placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none"
+                onFocus={e => (e.currentTarget.style.borderColor = "rgba(124,58,237,0.5)")}
+                onBlur={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)")} />
+            : <textarea value={value} onChange={e => set(e.target.value)} required placeholder={ph} rows={rows}
+                className="resize-none placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none"
+                style={{ ...inputStyle }} />}
+        </div>
+      ))}
       <div>
-        <label className="block text-xs font-medium mb-1 text-muted-foreground">Name</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} required
-          className="w-full bg-muted rounded-xl px-3 py-2 text-sm focus:outline-none" placeholder="e.g. Welcome message" />
+        <span style={labelStyle}>Delay (seconds)</span>
+        <input type="number" min={0} value={delay} onChange={e => setDelay(Number(e.target.value))}
+          style={{ ...inputStyle, width: "120px" }} className="focus:outline-none" />
       </div>
-      <div>
-        <label className="block text-xs font-medium mb-1 text-muted-foreground">Message</label>
-        <textarea value={message} onChange={(e) => setMessage(e.target.value)} required rows={3}
-          className="w-full bg-muted rounded-xl px-3 py-2 text-sm focus:outline-none resize-none" placeholder="Hi! Thanks for reaching out…" />
-      </div>
-      <div>
-        <label className="block text-xs font-medium mb-1 text-muted-foreground">Delay (seconds)</label>
-        <input type="number" min={0} value={delay} onChange={(e) => setDelay(Number(e.target.value))}
-          className="w-32 bg-muted rounded-xl px-3 py-2 text-sm focus:outline-none" />
-      </div>
-      <div className="flex gap-2">
-        <Button type="button" variant="ghost" onClick={onDone} className="flex-1">Cancel</Button>
-        <Button type="submit" disabled={isPending} className="flex-1 gap-2">
+      <div className="flex gap-3">
+        <button type="button" onClick={onDone} className="flex-1 py-2.5 rounded-xl text-sm font-medium"
+          style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.08)" }}>Cancel</button>
+        <button type="submit" disabled={isPending} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-60"
+          style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", boxShadow: "0 4px 14px rgba(124,58,237,0.4)" }}>
           {isPending && <Loader2 className="h-4 w-4 animate-spin" />} Create
-        </Button>
+        </button>
       </div>
     </form>
   );
@@ -55,53 +60,48 @@ function AutoReplyRow({ item }: { item: AutoReply }) {
   const [name, setName] = useState(item.name);
   const [message, setMessage] = useState(item.message);
 
-  const handleSave = async () => {
-    await update({ id: item.id, payload: { name, message } });
-    setEditing(false);
-  };
-
   return (
-    <div className="rounded-2xl border bg-card p-4 space-y-2">
+    <div className="rounded-2xl p-4" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
       <div className="flex items-start gap-3">
-        <button type="button" onClick={() => update({ id: item.id, payload: { is_active: !item.is_active } })}
-          className="mt-0.5 shrink-0 text-muted-foreground hover:text-emerald-600 transition-colors">
-          {item.is_active
-            ? <ToggleRight className="h-5 w-5 text-emerald-500" />
-            : <ToggleLeft className="h-5 w-5" />}
+        <button type="button" onClick={() => update({ id: item.id, payload: { is_active: !item.is_active } })} className="mt-0.5 flex-shrink-0">
+          {item.is_active ? <ToggleRight className="h-5 w-5" style={{ color: "#10b981" }} /> : <ToggleLeft className="h-5 w-5" style={{ color: "rgba(255,255,255,0.3)" }} />}
         </button>
         <div className="flex-1 min-w-0">
           {editing ? (
             <div className="space-y-2">
-              <input value={name} onChange={(e) => setName(e.target.value)}
-                className="w-full bg-muted rounded-xl px-3 py-1.5 text-sm focus:outline-none" />
-              <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={2}
-                className="w-full bg-muted rounded-xl px-3 py-1.5 text-sm focus:outline-none resize-none" />
+              <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} className="focus:outline-none" />
+              <textarea value={message} onChange={e => setMessage(e.target.value)} rows={2} className="resize-none focus:outline-none" style={inputStyle} />
               <div className="flex gap-2">
-                <Button size="sm" onClick={handleSave} className="gap-1"><Check className="h-3.5 w-3.5" /> Save</Button>
-                <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setName(item.name); setMessage(item.message); }}>
+                <button onClick={async () => { await update({ id: item.id, payload: { name, message } }); setEditing(false); }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
+                  style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)" }}>
+                  <Check className="h-3.5 w-3.5" /> Save
+                </button>
+                <button onClick={() => { setEditing(false); setName(item.name); setMessage(item.message); }}
+                  className="px-3 py-1.5 rounded-lg text-xs" style={{ color: "rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.06)" }}>
                   <X className="h-3.5 w-3.5" />
-                </Button>
+                </button>
               </div>
             </div>
           ) : (
             <>
-              <p className="font-medium text-sm">{item.name}</p>
-              <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{item.message}</p>
-              {item.delay_seconds > 0 && (
-                <p className="text-[11px] text-muted-foreground mt-1">Delay: {item.delay_seconds}s</p>
-              )}
+              <p className="font-medium text-white text-sm">{item.name}</p>
+              <p className="text-xs mt-0.5 line-clamp-2" style={{ color: "rgba(255,255,255,0.4)" }}>{item.message}</p>
+              {item.delay_seconds > 0 && <p className="text-[11px] mt-1" style={{ color: "rgba(255,255,255,0.3)" }}>Delay: {item.delay_seconds}s</p>}
             </>
           )}
         </div>
         {!editing && (
-          <div className="flex items-center gap-1 shrink-0">
-            <Button size="icon" variant="ghost" onClick={() => setEditing(true)} className="h-8 w-8">
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-            <Button size="icon" variant="ghost" onClick={() => del(item.id)} disabled={isDeleting}
-              className="h-8 w-8 text-muted-foreground hover:text-red-500">
-              {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-            </Button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {[{ Icon: Pencil, fn: () => setEditing(true), col: "#a78bfa" }, { Icon: Trash2, fn: () => del(item.id), col: "#f43f5e", dis: isDeleting }].map(({ Icon, fn, col, dis }, i) => (
+              <button key={i} type="button" onClick={fn} disabled={dis}
+                className="w-8 h-8 flex items-center justify-center rounded-lg disabled:opacity-50"
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.07)" }}
+                onMouseEnter={e => (e.currentTarget.style.background = col + "22")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
+                <Icon size={13} style={{ color: col }} />
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -114,27 +114,25 @@ export default function AutoRepliesPage() {
   const [showForm, setShowForm] = useState(false);
 
   return (
-    <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Auto Replies</h1>
-          <p className="text-muted-foreground text-sm mt-1">Automatically respond to incoming messages when active.</p>
+          <p className="font-semibold text-white">Auto Replies</p>
+          <p className="text-sm mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>Auto-respond to incoming messages when active.</p>
         </div>
-        <Button onClick={() => setShowForm(true)} className="gap-2" disabled={showForm}>
-          <Plus className="h-4 w-4" /> New Auto Reply
-        </Button>
+        <button onClick={() => setShowForm(true)} disabled={showForm}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-50"
+          style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", boxShadow: "0 4px 12px rgba(124,58,237,0.35)" }}>
+          <Plus size={14} /> New Auto Reply
+        </button>
       </div>
-
       {showForm && <AutoReplyForm onDone={() => setShowForm(false)} />}
-
       {isLoading ? (
-        <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin" style={{ color: "#a78bfa" }} /></div>
       ) : items.length === 0 && !showForm ? (
-        <div className="text-center py-16 text-muted-foreground text-sm">No auto replies yet.</div>
+        <div className="text-center py-16 text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>No auto replies yet.</div>
       ) : (
-        <div className="space-y-3">
-          {items.map((item) => <AutoReplyRow key={item.id} item={item} />)}
-        </div>
+        <div className="space-y-3">{items.map(item => <AutoReplyRow key={item.id} item={item} />)}</div>
       )}
     </div>
   );

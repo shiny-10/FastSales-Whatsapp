@@ -78,7 +78,7 @@ def get_organizations(q: str = None, status: str = None, sort: str = "newest"):
             "email": org.email,
             "industry": org.industry,
             "status": org.status,
-            "created_at": org.created_at.isoformat() if org.created_at else None,
+            "created_at": org.created_at.isoformat() + "Z" if org.created_at else None,
             "contacts_count": contacts_count,
             "campaigns_count": campaigns_count,
         })
@@ -111,7 +111,7 @@ def get_organization(organization_id: int):
         "email": org.email,
         "industry": org.industry,
         "status": org.status,
-        "created_at": org.created_at.isoformat() if org.created_at else None,
+        "created_at": org.created_at.isoformat() + "Z" if org.created_at else None,
         "contacts_count": contacts_count,
         "campaigns_count": campaigns_count,
     }

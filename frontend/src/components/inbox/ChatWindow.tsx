@@ -7,19 +7,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Send, MoreVertical, ArrowLeft, Search, X,
-  ChevronUp, ChevronDown, Pencil, Check, Smile, ArrowDown, CornerUpLeft, FileText, Mic,
+  ChevronUp, ChevronDown, Pencil, Smile, ArrowDown, CornerUpLeft, FileText, Trash2,
 } from "lucide-react";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { useInboxStore } from "@/store/inbox-store";
-import { useMessages, useSendTextMessage } from "@/hooks/use-messages";
+import { useMessages, useSendTextMessage, useDeleteMessage, useDeleteMessages } from "@/hooks/use-messages";
 import { useConversation, useUpdateConversation } from "@/hooks/use-conversations";
 import { MessageBubble } from "./MessageBubble";
 import { TypingIndicator } from "./TypingIndicator";
 import { MessageSkeleton } from "./MessageSkeleton";
 import { DateSeparator } from "./DateSeparator";
-import { Button } from "@/components/ui/button";
 import { ContactAvatar } from "./ContactAvatar";
-import { StatusBadge } from "./StatusBadge";
 import { AssignAgentModal } from "./AssignAgentModal";
 import { useSocket } from "@/lib/socket-context";
 import { cn, formatLastSeen, isSameDay, formatDateSeparator } from "@/lib/utils";
@@ -70,9 +68,15 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
   const { emitTyping, joinConversation } = useSocket();
   const queryClient = useQueryClient();
 
+  // ── Multi-select state ──────────────────────────────────────────────────────
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
   const { data: conversation } = useConversation(conversationId);
   const { data: messagesData, fetchNextPage, hasNextPage, isLoading: msgsLoading } = useMessages(conversationId);
   const { mutateAsync: sendText } = useSendTextMessage();
+  const { mutateAsync: deleteMessage } = useDeleteMessage();
+  const { mutateAsync: deleteMessages } = useDeleteMessages();
 
   const isTyping = typingMap[conversationId] ?? false;
 
@@ -81,8 +85,13 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
     const flat = pages.flatMap((p) => p.items);
     const storeConvMsgs = storeMessages[conversationId] ?? [];
     const merged = [...flat, ...storeConvMsgs];
-    const deduped = Array.from(new Map(merged.map((m) => [m.id, m])).values());
-    return deduped.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    // Normalise id to string so "9" and 9 are treated as the same key
+    const deduped = Array.from(
+      new Map(merged.map((m) => [String(m.id), m])).values()
+    );
+    return deduped.sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
   }, [messagesData, storeMessages, conversationId]);
 
   const searchMatches = useMemo(() => {
@@ -108,12 +117,15 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
     setShowScrollBtn(distFromBottom > 200);
   }, []);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { scrollToBottom("instant"); }, [conversationId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (!showScrollBtn) scrollToBottom(); }, [allMessages.length, isTyping]);
   useEffect(() => { if (currentMatch) document.getElementById(`msg-${currentMatch.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }); }, [currentMatch]);
-  useEffect(() => { setSearchIndex(0); }, [searchQuery]);
-  useEffect(() => { if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50); else setSearchQuery(""); }, [searchOpen]);
-  useEffect(() => { if (conversation) setNameValue(conversation.customer_name ?? ""); }, [conversation?.customer_name]);
+  useEffect(() => { setTimeout(() => setSearchIndex(0), 0); }, [searchQuery]);
+  useEffect(() => { if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50); else setTimeout(() => setSearchQuery(""), 0); }, [searchOpen]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (conversation) setTimeout(() => setNameValue(conversation.customer_name ?? ""), 0); }, [conversation?.customer_name]);
   useEffect(() => { if (editingName) nameInputRef.current?.focus(); }, [editingName]);
   useEffect(() => { joinConversation(conversationId); }, [conversationId, joinConversation]);
 
@@ -150,7 +162,12 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
       setText("");
       setReplyTo(null);
       scrollToBottom();
-    } catch (e) {
+    } catch (e: any) {
+      const detail =
+        e?.response?.data?.detail ||
+        e?.message ||
+        "Failed to send message. Check your WhatsApp connection.";
+      alert(`⚠️ ${detail}`);
       console.error("sendText failed", e);
     } finally {
       setIsSending(false);
@@ -192,6 +209,69 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
     textareaRef.current?.focus();
   };
 
+  // ── Message delete (single) ─────────────────────────────────────────────────
+  const handleDeleteMessage = useCallback(async (messageId: string) => {
+    if (!window.confirm("Delete this message?")) return;
+    // Optimistic remove from cache immediately
+    queryClient.setQueryData(["messages", conversationId], (old: any) => {
+      if (!old?.pages) return old;
+      return {
+        ...old,
+        pages: old.pages.map((page: any) => ({
+          ...page,
+          items: page.items.filter((m: any) => String(m.id) !== messageId),
+        })),
+      };
+    });
+    // Persist to backend
+    try {
+      await deleteMessage(messageId);
+    } catch {
+      // On failure, refetch to restore accurate state
+      queryClient.invalidateQueries({ queryKey: ["messages", conversationId] });
+    }
+  }, [conversationId, queryClient, deleteMessage]);
+
+  // ── Multi-select ────────────────────────────────────────────────────────────
+  const handleSelectMessage = useCallback((messageId: string, sel: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (sel) next.add(messageId); else next.delete(messageId);
+      return next;
+    });
+    if (!selectionMode) setSelectionMode(true);
+  }, [selectionMode]);
+
+  const handleDeleteSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.size} message${selectedIds.size > 1 ? "s" : ""}?`)) return;
+    const ids = Array.from(selectedIds);
+    // Optimistic remove
+    queryClient.setQueryData(["messages", conversationId], (old: any) => {
+      if (!old?.pages) return old;
+      return {
+        ...old,
+        pages: old.pages.map((page: any) => ({
+          ...page,
+          items: page.items.filter((m: any) => !selectedIds.has(String(m.id))),
+        })),
+      };
+    });
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+    // Persist to backend
+    try {
+      await deleteMessages(ids);
+    } catch {
+      queryClient.invalidateQueries({ queryKey: ["messages", conversationId] });
+    }
+  }, [selectedIds, conversationId, queryClient, deleteMessages]);
+
+  const handleCancelSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  }, []);
+
   // File picker for preview-before-send
   const triggerFilePicker = (type: MediaCategory) => {
     if (fileInputRef.current) {
@@ -213,92 +293,138 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-2.5 bg-[#f0f2f5] dark:bg-[#202c33] border-b border-border shadow-sm z-10">
+    <div className="flex flex-col h-full" style={{ background: "#f5f6fa" }}>
+
+      {/* ── Header ── */}
+      <div
+        className="flex items-center gap-3 px-5 py-3 flex-shrink-0"
+        style={{ background: "#ffffff", borderBottom: "1px solid #f0f1f5" }}
+      >
         {onBack && (
-          <Button size="icon" variant="ghost" onClick={onBack} className="shrink-0 md:hidden">
+          <button type="button" onClick={onBack} className="shrink-0 md:hidden p-1.5 rounded-lg transition-colors" style={{ color: "#9498b0" }}>
             <ArrowLeft className="h-4 w-4" />
-          </Button>
+          </button>
         )}
-        <ContactAvatar name={conversation.customer_name} phone={conversation.customer_phone} className="h-9 w-9 shrink-0" />
+        <ContactAvatar name={conversation.customer_name} phone={conversation.customer_phone} className="h-10 w-10 shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 group">
+          <div className="flex items-center gap-2 group">
             {editingName ? (
-              <>
-                <input
-                  ref={nameInputRef}
-                  value={nameValue}
-                  onChange={(e) => setNameValue(e.target.value)}
-                  onKeyDown={handleNameKeyDown}
-                  onBlur={handleNameSave}
-                  className="font-semibold text-sm bg-transparent border-b-2 border-brand-400 focus:outline-none w-40"
-                  placeholder="Enter name"
-                />
-                <button type="button" onMouseDown={(e) => { e.preventDefault(); handleNameSave(); }} className="text-green-500"><Check className="h-3.5 w-3.5" /></button>
-                <button type="button" onMouseDown={(e) => { e.preventDefault(); setNameValue(conversation.customer_name ?? ""); setEditingName(false); }} className="text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
-              </>
+              <input
+                ref={nameInputRef}
+                value={nameValue}
+                onChange={e => setNameValue(e.target.value)}
+                onKeyDown={handleNameKeyDown}
+                onBlur={handleNameSave}
+                className="font-semibold text-sm focus:outline-none border-b-2 bg-transparent"
+                style={{ borderColor: "#7c3aed", color: "#1a1d23", width: "160px" }}
+                placeholder="Enter name"
+              />
             ) : (
               <>
-                <span className="font-semibold text-sm truncate cursor-pointer hover:underline" onClick={() => { setNameValue(conversation.customer_name ?? ""); setEditingName(true); }}>
+                <span
+                  className="font-semibold text-[14px] cursor-pointer"
+                  style={{ color: "#1a1d23" }}
+                  onClick={() => { setNameValue(conversation.customer_name ?? ""); setEditingName(true); }}
+                >
                   {conversation.customer_name || conversation.customer_phone}
                 </span>
-                <button type="button" onClick={() => { setNameValue(conversation.customer_name ?? ""); setEditingName(true); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground">
+                <button
+                  type="button"
+                  onClick={() => { setNameValue(conversation.customer_name ?? ""); setEditingName(true); }}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ color: "#b0b3c6" }}
+                >
                   <Pencil className="h-3 w-3" />
                 </button>
-                <StatusBadge status={conversation.status} className="hidden sm:flex" />
               </>
             )}
           </div>
-          {/* Last seen — feature 11 */}
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs mt-0.5" style={{ color: "#b0b3c6" }}>
             {conversation.last_message_at ? `last seen ${formatLastSeen(conversation.last_message_at)}` : conversation.customer_phone}
           </p>
         </div>
         <div className="flex items-center gap-1">
           <AssignAgentModal conversationId={conversationId} currentAgentId={conversation.assigned_agent_id}>
-            <Button size="sm" variant="ghost" className="text-xs text-gray-600 dark:text-gray-300">
+            <button
+              type="button"
+              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+              style={{ background: "#f0eeff", color: "#7c3aed" }}
+              onMouseEnter={e => (e.currentTarget.style.background = "#e5e0ff")}
+              onMouseLeave={e => (e.currentTarget.style.background = "#f0eeff")}
+            >
               {conversation.assigned_agent_id ? "Reassign" : "Assign"}
-            </Button>
+            </button>
           </AssignAgentModal>
-          <Button size="icon" variant="ghost" onClick={() => setSearchOpen((v) => !v)}>
-            <Search className="h-4 w-4" />
-          </Button>
-          <Button size="icon" variant="ghost">
-            <MoreVertical className="h-4 w-4" />
-          </Button>
+          {[
+            { icon: Search, action: () => setSearchOpen(v => !v) },
+            { icon: MoreVertical, action: () => {} },
+          ].map(({ icon: Icon, action }, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={action}
+              className="flex items-center justify-center w-8 h-8 rounded-lg transition-colors"
+              style={{ color: "#9498b0" }}
+              onMouseEnter={e => (e.currentTarget.style.background = "#f5f6fa")}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            >
+              <Icon className="h-4 w-4" />
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Search bar */}
       {searchOpen && (
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-background">
-          <Search className="h-4 w-4 text-muted-foreground shrink-0" />
-          <input ref={searchInputRef} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search messages…" className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground" />
-          {searchQuery && <span className="text-xs text-muted-foreground shrink-0">{searchMatches.length === 0 ? "No results" : `${searchIndex + 1} / ${searchMatches.length}`}</span>}
-          <Button size="icon" variant="ghost" className="h-7 w-7" disabled={searchMatches.length === 0} onClick={() => setSearchIndex((i) => (i - 1 + searchMatches.length) % searchMatches.length)}><ChevronUp className="h-3.5 w-3.5" /></Button>
-          <Button size="icon" variant="ghost" className="h-7 w-7" disabled={searchMatches.length === 0} onClick={() => setSearchIndex((i) => (i + 1) % searchMatches.length)}><ChevronDown className="h-3.5 w-3.5" /></Button>
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setSearchOpen(false)}><X className="h-3.5 w-3.5" /></Button>
+        <div
+          className="flex items-center gap-2 px-4 py-2 flex-shrink-0"
+          style={{ background: "#ffffff", borderBottom: "1px solid #f0f1f5" }}
+        >
+          <Search className="h-3.5 w-3.5 shrink-0" style={{ color: "#b0b3c6" }} />
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search messages…"
+            className="flex-1 text-sm focus:outline-none bg-transparent"
+            style={{ color: "#1a1d23" }}
+          />
+          {searchQuery && (
+            <span className="text-xs shrink-0" style={{ color: "#9498b0" }}>
+              {searchMatches.length === 0 ? "No results" : `${searchIndex + 1}/${searchMatches.length}`}
+            </span>
+          )}
+          <button type="button" disabled={searchMatches.length === 0} onClick={() => setSearchIndex(i => (i - 1 + searchMatches.length) % searchMatches.length)} style={{ color: "#b0b3c6" }}><ChevronUp className="h-3.5 w-3.5" /></button>
+          <button type="button" disabled={searchMatches.length === 0} onClick={() => setSearchIndex(i => (i + 1) % searchMatches.length)} style={{ color: "#b0b3c6" }}><ChevronDown className="h-3.5 w-3.5" /></button>
+          <button type="button" onClick={() => setSearchOpen(false)} style={{ color: "#b0b3c6" }}><X className="h-3.5 w-3.5" /></button>
         </div>
       )}
 
       {/* Load more */}
       {hasNextPage && (
-        <div className="text-center py-1.5 bg-transparent">
-          <Button size="sm" variant="ghost" onClick={() => fetchNextPage()} className="text-xs text-muted-foreground">Load older messages</Button>
+        <div className="text-center py-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => fetchNextPage()}
+            className="text-xs px-3 py-1.5 rounded-lg transition-colors"
+            style={{ background: "#f0eeff", color: "#7c3aed" }}
+          >
+            Load older messages
+          </button>
         </div>
       )}
 
-      {/* Messages area — feature 1 (background) */}
+      {/* ── Messages area ── */}
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-3 space-y-4 wa-chat-bg"
+        className="flex-1 overflow-y-auto px-6 py-4 space-y-1"
+        style={{ background: "#f5f6fa" }}
       >
         {msgsLoading ? (
           <MessageSkeleton />
         ) : allMessages.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+          <div className="flex items-center justify-center h-full text-sm" style={{ color: "#b0b3c6" }}>
             No messages yet. Start the conversation!
           </div>
         ) : (
@@ -306,8 +432,7 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
             const prev = allMessages[idx - 1];
             const showSeparator = !prev || !isSameDay(prev.created_at, msg.created_at);
             return (
-              <div key={msg.id} id={`msg-${msg.id}`}>
-                {/* Feature 2 — date separator */}
+              <div key={String(msg.id)} id={`msg-${msg.id}`}>
                 {showSeparator && <DateSeparator label={formatDateSeparator(msg.created_at)} />}
                 <MessageBubble
                   message={msg}
@@ -315,19 +440,22 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
                   highlight={!!searchQuery && !!msg.content?.toLowerCase().includes(searchQuery.toLowerCase())}
                   isCurrentMatch={currentMatch?.id === msg.id}
                   onReply={setReplyTo}
+                  onDelete={handleDeleteMessage}
+                  selected={selectedIds.has(String(msg.id))}
+                  onSelect={handleSelectMessage}
+                  selectionMode={selectionMode}
                 />
               </div>
             );
           })
         )}
-
         <AnimatePresence>
           {isTyping && <TypingIndicator />}
         </AnimatePresence>
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Scroll to bottom button — feature 10 */}
+      {/* Scroll to bottom */}
       <AnimatePresence>
         {showScrollBtn && (
           <motion.button
@@ -336,20 +464,21 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
             exit={{ opacity: 0, scale: 0.8 }}
             type="button"
             onClick={() => scrollToBottom()}
-            className="absolute bottom-24 right-6 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white dark:bg-gray-700 shadow-lg border border-border hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+            className="absolute bottom-24 right-6 z-20 flex h-9 w-9 items-center justify-center rounded-full shadow-lg transition-colors"
+            style={{ background: "#ffffff", border: "1px solid #e8eaf0" }}
           >
-            <ArrowDown className="h-4 w-4 text-gray-600 dark:text-gray-300" />
+            <ArrowDown className="h-4 w-4" style={{ color: "#7c3aed" }} />
           </motion.button>
         )}
       </AnimatePresence>
 
-      {/* File preview modal */}
+      {/* File preview */}
       {filePreview && (
         <FilePreview
           file={filePreview.file}
           mediaType={filePreview.type}
           conversationId={conversationId}
-          onSent={(msg) => { handleMediaSent(msg); setFilePreview(null); }}
+          onSent={msg => { handleMediaSent(msg); setFilePreview(null); }}
           onCancel={() => setFilePreview(null)}
         />
       )}
@@ -363,22 +492,66 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
         />
       )}
 
-      {/* Hidden file input for preview-before-send */}
       <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
 
-      {/* Composer */}
-      <div className="bg-[#f0f2f5] dark:bg-[#202c33] px-3 py-2 space-y-1.5">
+      {/* ── Composer or Selection Toolbar ── */}
+      {selectionMode ? (
+        /* ── Selection toolbar ── */
+        <div
+          className="px-4 py-3 flex items-center justify-between flex-shrink-0"
+          style={{ background: "#ffffff", borderTop: "1px solid #f0f1f5" }}
+        >
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleCancelSelection}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors"
+              style={{ background: "#f5f6fa", color: "#4b4f6b", border: "1px solid #e8eaf0" }}
+            >
+              <X className="h-4 w-4" />
+              Cancel
+            </button>
+            <span className="text-sm font-medium" style={{ color: "#7c3aed" }}>
+              {selectedIds.size} selected
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleDeleteSelected}
+            disabled={selectedIds.size === 0}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-40"
+            style={{
+              background: selectedIds.size > 0
+                ? "linear-gradient(135deg,#ef4444,#dc2626)"
+                : "#e8eaf0",
+              color: selectedIds.size > 0 ? "#fff" : "#b0b3c6",
+              boxShadow: selectedIds.size > 0 ? "0 4px 12px rgba(239,68,68,0.3)" : "none",
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}
+          </button>
+        </div>
+      ) : (
+        /* ── Composer ── */
+        <div
+          className="px-4 py-3 flex-shrink-0"
+          style={{ background: "#ffffff", borderTop: "1px solid #f0f1f5" }}
+        >
         {/* Reply preview */}
         {replyTo && (
-          <div className="flex items-center gap-2 bg-white dark:bg-gray-700 rounded-xl px-3 py-2 border-l-4 border-brand-500">
-            <CornerUpLeft className="h-4 w-4 text-brand-500 shrink-0" />
+          <div
+            className="flex items-center gap-2 rounded-xl px-3 py-2 mb-2"
+            style={{ background: "#f0eeff", borderLeft: "3px solid #7c3aed" }}
+          >
+            <CornerUpLeft className="h-4 w-4 shrink-0" style={{ color: "#7c3aed" }} />
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-brand-600 dark:text-brand-400">
+              <p className="text-xs font-semibold" style={{ color: "#7c3aed" }}>
                 {replyTo.sender_type === "AGENT" ? "You" : "Customer"}
               </p>
-              <p className="text-xs text-gray-500 truncate">{replyTo.content ?? "📎 Media"}</p>
+              <p className="text-xs truncate" style={{ color: "#6b7080" }}>{replyTo.content ?? "📎 Media"}</p>
             </div>
-            <button type="button" onClick={() => setReplyTo(null)} className="text-gray-400 hover:text-gray-600">
+            <button type="button" onClick={() => setReplyTo(null)} style={{ color: "#b0b3c6" }}>
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -387,63 +560,84 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
         {showVoice ? (
           <VoiceRecorder
             conversationId={conversationId}
-            onSent={(msg) => { handleMediaSent(msg); setShowVoice(false); }}
+            onSent={msg => { handleMediaSent(msg); setShowVoice(false); }}
             onCancel={() => setShowVoice(false)}
           />
         ) : (
           <div className="flex items-end gap-2">
-            {/* Emoji picker */}
+            {/* Emoji */}
             <div className="relative">
-              <Button size="icon" variant="ghost" type="button" onClick={() => setShowEmojiPicker((v) => !v)} className="h-9 w-9 text-gray-500 hover:text-gray-700 dark:text-gray-400">
+              <button
+                type="button"
+                onClick={() => setShowEmojiPicker(v => !v)}
+                className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
+                style={{ color: "#b0b3c6" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "#f5f6fa")}
+                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              >
                 <Smile className="h-5 w-5" />
-              </Button>
+              </button>
               {showEmojiPicker && (
-                <div className="absolute bottom-12 left-0 z-50">
-                  <EmojiPicker onEmojiClick={handleEmojiClick} theme={"auto" as Theme} height={350} width={300} searchDisabled={false} skinTonesDisabled previewConfig={{ showPreview: false }} />
+                <div className="absolute bottom-12 left-0 z-50 shadow-2xl rounded-2xl overflow-hidden">
+                  <EmojiPicker onEmojiClick={handleEmojiClick} theme={"light" as Theme} height={350} width={300} searchDisabled={false} skinTonesDisabled previewConfig={{ showPreview: false }} />
                 </div>
               )}
             </div>
 
-            {/* Attachment — now opens file preview */}
+            {/* Attachment */}
             <MediaUploadButton conversationId={conversationId} onSent={handleMediaSent} onPreview={triggerFilePicker} />
 
-            {/* Template button */}
-            <Button size="icon" variant="ghost" type="button" onClick={() => setShowTemplateModal(true)} className="h-9 w-9 text-gray-500 hover:text-gray-700 dark:text-gray-400" title="Send template">
+            {/* Template */}
+            <button
+              type="button"
+              onClick={() => setShowTemplateModal(true)}
+              className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
+              style={{ color: "#b0b3c6" }}
+              onMouseEnter={e => (e.currentTarget.style.background = "#f5f6fa")}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              title="Send template"
+            >
               <FileText className="h-4 w-4" />
-            </Button>
+            </button>
 
-            {/* Text input + canned responses */}
-            <div className="flex-1 flex items-end bg-white dark:bg-[#2a3942] rounded-2xl px-3 py-2 shadow-sm relative">
+            {/* Input */}
+            <div
+              className="flex-1 flex items-end rounded-2xl px-4 py-2.5 relative"
+              style={{ background: "#f5f6fa", border: "1.5px solid #e8eaf0" }}
+            >
               {cannedQuery !== null && (
-                <CannedResponses
-                  query={cannedQuery}
-                  onSelect={handleCannedSelect}
-                  onClose={() => setCannedQuery(null)}
-                />
+                <CannedResponses query={cannedQuery} onSelect={handleCannedSelect} onClose={() => setCannedQuery(null)} />
               )}
               <textarea
                 ref={textareaRef}
                 value={text}
-                onChange={(e) => handleTextChange(e.target.value)}
+                onChange={e => handleTextChange(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Type a message or / for quick replies"
                 rows={1}
-                className="flex-1 bg-transparent text-sm resize-none focus:outline-none placeholder:text-gray-400 dark:placeholder:text-gray-500 py-0.5 max-h-32 leading-relaxed"
-                style={{ minHeight: "24px" }}
+                className="flex-1 bg-transparent text-sm resize-none focus:outline-none max-h-32 leading-relaxed"
+                style={{ color: "#1a1d23", minHeight: "22px" }}
               />
             </div>
 
-            {/* Send or mic */}
+            {/* Send / Mic */}
             {text.trim() ? (
-              <Button type="button" size="icon" onClick={handleSend} disabled={isSending} className="h-9 w-9 shrink-0 rounded-full bg-[#00a884] hover:bg-[#00956f] text-white border-0">
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={isSending}
+                className="flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-all disabled:opacity-60"
+                style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "#ffffff", boxShadow: "0 4px 14px rgba(124,58,237,0.4)" }}
+              >
                 <Send className="h-4 w-4" />
-              </Button>
+              </button>
             ) : (
               <VoiceMicButton onClick={() => setShowVoice(true)} />
             )}
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

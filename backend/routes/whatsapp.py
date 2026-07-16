@@ -19,19 +19,33 @@ class MessageRequest(BaseModel):
     to: str
     template_name: str
 
+meta_access_token = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN
+meta_phone_number_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID
 meta_service = MetaWhatsAppService(
-    settings.ACCESS_TOKEN,
-    settings.PHONE_NUMBER_ID
+    meta_access_token,
+    meta_phone_number_id,
 )
 
 @router.post("/send")
 def send_message(data: MessageRequest, request: Request):
     db = SessionLocal()
+    if not meta_access_token or not meta_phone_number_id:
+        return {
+            "success": False,
+            "error": "WhatsApp send credentials are not configured. Set META_ACCESS_TOKEN and META_WHATSAPP_PHONE_NUMBER_ID.",
+        }
     try:
         result = meta_service.send_template_message(
             data.to,
-            data.template_name
+            data.template_name,
         )
+
+        if isinstance(result, dict) and result.get("success") is False:
+            return {
+                "success": False,
+                "error": result.get("error", "WhatsApp send failed"),
+                "meta_response": result,
+            }
 
         # Record in MessageLog
         # Determine org from header if provided, else fallback to 1
@@ -102,7 +116,7 @@ def send_message(data: MessageRequest, request: Request):
                     "id": conv_msg.id,
                     "text": conv_msg.text,
                     "direction": conv_msg.direction,
-                    "created_at": conv_msg.created_at.isoformat() if conv_msg.created_at else None,
+                    "created_at": conv_msg.created_at.isoformat() + "Z" if conv_msg.created_at else None,
                 }
             }))
         except Exception:
@@ -264,7 +278,7 @@ def get_activity_logs(limit: int = 25):
                 "message": l.text,
                 "status": l.status,
                 "direction": l.direction,
-                "time": l.created_at.isoformat() if l.created_at else None,
+                "time": l.created_at.isoformat() + "Z" if l.created_at else None,
             })
     finally:
         db.close()
@@ -349,3 +363,4 @@ def disconnect_account(request: Request):
         return {"success": False, "error": str(e)}
     finally:
         db.close()
+

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import requests
+from core.config import settings
 
 class MetaWhatsAppService:
 
@@ -11,10 +12,9 @@ class MetaWhatsAppService:
         self.access_token = access_token
         self.phone_number_id = phone_number_id
 
-        self.base_url = (
-            f"https://graph.facebook.com/v25.0/"
-            f"{phone_number_id}/messages"
-        )
+        base = settings.META_BASE_URL.rstrip("/")
+        version = settings.META_API_VERSION
+        self.base_url = f"{base}/{version}/{phone_number_id}/messages"
 
     def send_template_message(
         self,
@@ -46,15 +46,27 @@ class MetaWhatsAppService:
                 self.base_url,
                 headers=headers,
                 json=payload,
-                timeout=10
+                timeout=10,
             )
             print("STATUS:", response.status_code)
             print("RESPONSE:", response.text)
-            return response.json()
+            try:
+                result = response.json()
+            except ValueError:
+                result = {"error": response.text}
+
+            if not response.ok:
+                return {
+                    "success": False,
+                    "status_code": response.status_code,
+                    "error": result.get("error") or response.text,
+                    "response": result,
+                }
+            return result
         except Exception as e:
             return {
                 "success": False,
-                "error": str(e)
+                "error": str(e),
             }
 
     def send_text_message(
@@ -79,15 +91,27 @@ class MetaWhatsAppService:
                 self.base_url,
                 headers=headers,
                 json=payload,
-                timeout=10
+                timeout=10,
             )
             print("STATUS:", response.status_code)
             print("RESPONSE:", response.text)
-            return response.json()
+            try:
+                result = response.json()
+            except ValueError:
+                result = {"error": response.text}
+
+            if not response.ok:
+                return {
+                    "success": False,
+                    "status_code": response.status_code,
+                    "error": result.get("error") or response.text,
+                    "response": result,
+                }
+            return result
         except Exception as e:
             return {
                 "success": False,
-                "error": str(e)
+                "error": str(e),
             }
 
     def get_phone_number_info(self):

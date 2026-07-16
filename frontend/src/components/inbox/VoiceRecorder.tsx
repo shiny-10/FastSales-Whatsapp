@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { Mic, Square, Send, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -22,16 +22,11 @@ export function VoiceRecorder({ conversationId, onSent, onCancel }: VoiceRecorde
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    startRecording();
-    return () => stopTimer();
-  }, []);
-
   const stopTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
   };
 
-  const startRecording = async () => {
+  const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream, { mimeType: "audio/webm" });
@@ -49,7 +44,14 @@ export function VoiceRecorder({ conversationId, onSent, onCancel }: VoiceRecorde
     } catch {
       onCancel();
     }
-  };
+  }, [onCancel]);
+
+  useEffect(() => {
+    // start recording on mount (defer to avoid synchronous setState-in-effect)
+    const t = setTimeout(() => { startRecording(); }, 0);
+    return () => { clearTimeout(t); stopTimer(); };
+  }, [startRecording]);
+
 
   const stopRecording = () => {
     mediaRef.current?.stop();

@@ -62,9 +62,11 @@ export interface Conversation {
   is_archived: boolean;
   unread_count: number;
   last_message_at?: string;
+  last_message_preview?: string;
+  last_message_sender?: "AGENT" | "CUSTOMER" | "SYSTEM";
+  last_message_status?: string;
   created_at: string;
   updated_at: string;
-  last_message_preview?: string;
 }
 
 export interface ConversationListResponse {

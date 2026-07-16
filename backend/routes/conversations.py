@@ -76,7 +76,7 @@ def list_conversations(status: Optional[str] = None, user: dict = Depends(get_cu
                 "customer_phone": c.customer_phone,
                 "customer_name": c.customer_name,
                 "status": c.status,
-                "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
+                "last_message_at": c.last_message_at.isoformat() + "Z" if c.last_message_at else None,
                 "unread_count": unread,
             })
         return {"success": True, "conversations": out}
@@ -113,3 +113,4 @@ def get_conversation(conversation_id: int, user: dict = Depends(get_current_user
         }}
     finally:
         db.close()
+

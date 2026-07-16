@@ -1,25 +1,24 @@
 "use client";
-import Messagecharts from "../components/charts/messagecharts";
+
 import { useState, useEffect } from "react";
+import Link from "next/link";
+import Messagecharts from "../components/charts/messagecharts";
 import StatsCard from "../components/StatsCard";
+import TemplateDonutChart from "../components/charts/TemplateDonutChart";
+import CampaignsTable from "../components/CampaignsTable";
 import {
   getDashboardSummary,
   getDashboardOverview,
   getCampaigns,
   getTemplateOverview,
 } from "../services/dashboardService";
-import { FaUsers, FaWhatsapp, FaFileAlt, FaBullhorn } from "react-icons/fa";
-import { FaBell, FaSearch } from "react-icons/fa";
-import { useRouter } from "next/navigation";
-
-import TemplateDonutChart from "../components/charts/TemplateDonutChart";
-import Link from "next/link";
-import CampaignsTable from "../components/CampaignsTable";
-
-
+import {
+  Users, MessageSquare, FileText, Megaphone,
+  ArrowRight, Activity, CheckCircle2, Send,
+  Plus, Zap,
+} from "lucide-react";
 
 export default function Home() {
-  const router = useRouter();
   const [summary, setSummary] = useState({
     total_contacts: 0,
     total_templates: 0,
@@ -30,213 +29,286 @@ export default function Home() {
     read: 0,
     failed: 0,
   });
-  const [overview, setOverview] = useState({
-    total_campaigns: 0,
-    total_messages: 0,
-    delivered: 0,
-    read: 0,
-    failed: 0,
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [templateOverview, setTemplateOverview] = useState({
+    approved: 0, pending: 0, rejected: 0, disabled: 0,
   });
 
-  const [campaigns, setCampaigns] = useState([]);
-
-  const [searchQuery, setSearchQuery] = useState("");
-  const [notificationCount, setNotificationCount] = useState(3);
-
-  const [templateOverview, setTemplateOverview] = useState({
-  approved: 0,
-  pending: 0,
-  rejected: 0,
-  disabled: 0,
-});
-
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchData = async () => {
+    let alive = true;
+    (async () => {
       try {
-        const [dashboardData, overviewData, campaignsData, templateData] = await Promise.all([
+        const [d, , c, t] = await Promise.all([
           getDashboardSummary(),
           getDashboardOverview(),
           getCampaigns(),
           getTemplateOverview(),
         ]);
-
-        if (!isMounted) {
-          return;
-        }
-
-        setSummary(dashboardData);
-        setOverview(overviewData);
-        setCampaigns(campaignsData);
-        setTemplateOverview(templateData);
-      } catch (error) {
-        console.error(error);
-      }
-    };
-
-    void fetchData();
-
-    return () => {
-      isMounted = false;
-    };
+        if (!alive) return;
+        setSummary(d);
+        setCampaigns(Array.isArray(c) ? c : []);
+        setTemplateOverview(t);
+      } catch { /* silent */ }
+    })();
+    return () => { alive = false; };
   }, []);
-  
-  return (
-    <div className="bg-slate-100 min-h-screen p-6">
 
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
+  const stats = [
+    {
+      title: "Total Contacts",
+      value: summary.total_contacts,
+      change: "+12.5% this month",
+      icon: <Users size={20} />,
+      gradient: "linear-gradient(135deg,#7c3aed,#4f46e5)",
+      glowClass: "ring-violet",
+      trend: "up" as const,
+    },
+    {
+      title: "Messages Sent",
+      value: summary.total_messages,
+      change: "+18.6% this month",
+      icon: <MessageSquare size={20} />,
+      gradient: "linear-gradient(135deg,#06b6d4,#0284c7)",
+      glowClass: "ring-cyan",
+      trend: "up" as const,
+    },
+    {
+      title: "Active Templates",
+      value: summary.total_templates,
+      change: "+8.3% this month",
+      icon: <FileText size={20} />,
+      gradient: "linear-gradient(135deg,#10b981,#059669)",
+      glowClass: "ring-emerald",
+      trend: "up" as const,
+    },
+    {
+      title: "Campaigns",
+      value: summary.total_campaigns,
+      change: "+14.7% this month",
+      icon: <Megaphone size={20} />,
+      gradient: "linear-gradient(135deg,#f43f5e,#e11d48)",
+      glowClass: "ring-rose",
+      trend: "up" as const,
+    },
+  ];
+
+  const quickActions = [
+    { label: "New Contact",   href: "/contacts",  icon: Users,        color: "#7c3aed" },
+    { label: "New Template",  href: "/templates", icon: FileText,     color: "#06b6d4" },
+    { label: "New Campaign",  href: "/campaigns", icon: Megaphone,    color: "#10b981" },
+    { label: "Open Inbox",    href: "/whatsapp",  icon: MessageSquare,color: "#25d366" },
+  ];
+
+  const activity = [
+    { icon: "✅", label: 'Campaign "Order Update" completed',       time: "2m ago",  color: "#10b981" },
+    { icon: "💬", label: "Message delivered to +91 98765 43210",   time: "5m ago",  color: "#06b6d4" },
+    { icon: "📝", label: 'Template "order_confirm_v2" approved',    time: "15m ago", color: "#a78bfa" },
+    { icon: "➕", label: "New contact added — Rahul Sharma",        time: "30m ago", color: "#f59e0b" },
+    { icon: "📊", label: "Weekly report generated",                 time: "1h ago",  color: "#f43f5e" },
+  ];
+
+  return (
+    <div className="min-h-screen p-6 space-y-6 animate-fade-up">
+
+      {/* ── Page header ── */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold text-gray-800">Dashboard 👋</h1>
-          <p className="text-gray-500 mt-1">Welcome back, Admin! Here&apos;s what&apos;s happening with your WhatsApp CRM.</p>
+          <h1 className="text-3xl font-bold text-white">
+            Good morning, Admin 👋
+          </h1>
+          <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.45)" }}>
+            Here's what's happening with your WhatsApp CRM today.
+          </p>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { if (searchQuery.trim()) router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`); } }}
-              type="text"
-              placeholder="Search anything..."
-              className="border rounded-full px-4 py-2 pr-10 w-72 bg-white"
-            />
+        <Link
+          href="/whatsapp"
+          className="btn-glow flex items-center gap-2 text-sm"
+        >
+          <Zap size={15} />
+          Open Inbox
+        </Link>
+      </div>
 
-            <button
-              onClick={() => { if (searchQuery.trim()) router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`); }}
-              className="absolute right-1 top-1/2 -translate-y-1/2 bg-[#25D366] text-white w-8 h-8 rounded-full flex items-center justify-center"
-              aria-label="Search"
-            >
-              <FaSearch />
-            </button>
-          </div>
+      {/* ── Stats row ── */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        {stats.map((s) => (
+          <StatsCard key={s.title} {...s} />
+        ))}
+      </div>
 
-          <div className="relative">
-            <button className="bg-white shadow rounded-lg px-3 py-2 flex items-center justify-center">
-              <FaBell className="text-lg text-gray-600" />
-            </button>
+      {/* ── Main content: chart + side panel ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
 
-            {notificationCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-green-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
-                {notificationCount}
-              </span>
-            )}
-          </div>
+        {/* Chart + table */}
+        <div className="xl:col-span-8 space-y-5">
 
-          <div className="flex items-center gap-3 bg-white shadow rounded-lg px-3 py-2">
-            <div className="w-10 h-10 rounded-full bg-[#25D366] text-white flex items-center justify-center font-bold">A</div>
-            <div>
-              <p className="font-semibold">Admin</p>
-              <p className="text-xs text-gray-500">Super Admin</p>
+          {/* Message performance chart */}
+          <div
+            className="rounded-2xl p-5"
+            style={{
+              background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
+              border: "1px solid rgba(255,255,255,0.07)",
+            }}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="font-semibold text-[15px] text-white">Message Performance</h2>
+                <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>This month</p>
+              </div>
+              <div className="flex items-center gap-4 text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
+                <span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-violet-400" />Sent</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-cyan-400" />Delivered</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />Read</span>
+              </div>
+            </div>
+            <div className="h-64">
+              <Messagecharts summary={summary} />
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Top Cards */}
-      <div className="grid grid-cols-4 gap-6">
-        <StatsCard title="Total Contacts" value={summary.total_contacts} icon={<FaUsers />} change="12.5% from last month" />
-        <StatsCard title="Total Templates" value={summary.total_templates} icon={<FaFileAlt />} change="8.3% from last month" />
-        <StatsCard title="Total Campaigns" value={summary.total_campaigns} icon={<FaBullhorn />} change="14.7% from last month" />
-        <StatsCard title="Messages Sent" value={summary.total_messages} icon={<FaWhatsapp />} change="18.6% from last month" />
-      </div>
-
-      {/* Middle Section */}
-      <div className="grid grid-cols-12 gap-6 mt-6">
-        <div className="col-span-8 bg-white rounded-2xl shadow p-6">
-          <h2 className="text-xl font-bold mb-4">Message Performance (This Month)</h2>
-          <div className="h-96">
-            <Messagecharts summary={summary} />
+          {/* Delivery metrics strip */}
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { label: "Delivered", value: summary.delivered, icon: <CheckCircle2 size={16} />, color: "#10b981", pct: summary.total_messages ? Math.round((summary.delivered / summary.total_messages) * 100) : 0 },
+              { label: "Read",      value: summary.read,      icon: <Activity      size={16} />, color: "#06b6d4", pct: summary.total_messages ? Math.round((summary.read      / summary.total_messages) * 100) : 0 },
+              { label: "Failed",    value: summary.failed,    icon: <Send          size={16} />, color: "#f43f5e", pct: summary.total_messages ? Math.round((summary.failed    / summary.total_messages) * 100) : 0 },
+            ].map((m) => (
+              <div
+                key={m.label}
+                className="rounded-2xl p-4"
+                style={{
+                  background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
+                  border: "1px solid rgba(255,255,255,0.07)",
+                }}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.4)" }}>{m.label}</span>
+                  <span style={{ color: m.color }}>{m.icon}</span>
+                </div>
+                <p className="text-2xl font-bold text-white tabular-nums">{m.value.toLocaleString()}</p>
+                {/* Progress bar */}
+                <div className="mt-3 h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${m.pct}%`, background: m.color }}
+                  />
+                </div>
+                <p className="text-xs mt-1.5" style={{ color: "rgba(255,255,255,0.35)" }}>{m.pct}% of total</p>
+              </div>
+            ))}
           </div>
 
-          {/* Recent Campaigns moved here (replaces small stats row) */}
-          <div className="mt-6">
-            <h3 className="text-lg font-semibold mb-4">Recent Campaigns</h3>
+          {/* Recent campaigns */}
+          <div
+            className="rounded-2xl"
+            style={{
+              background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
+              border: "1px solid rgba(255,255,255,0.07)",
+            }}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+              <h3 className="font-semibold text-[15px] text-white">Recent Campaigns</h3>
+              <Link
+                href="/campaigns"
+                className="flex items-center gap-1 text-xs font-medium transition-colors"
+                style={{ color: "rgba(124,58,237,0.9)" }}
+              >
+                View all <ArrowRight size={12} />
+              </Link>
+            </div>
             <CampaignsTable campaigns={campaigns.slice(0, 5)} />
           </div>
         </div>
 
-        <div className="col-span-4 space-y-6">
-          <div className="bg-white rounded-2xl shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Template Overview</h2>
+        {/* Right column */}
+        <div className="xl:col-span-4 space-y-5">
+
+          {/* Template overview */}
+          <div
+            className="rounded-2xl p-5"
+            style={{
+              background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
+              border: "1px solid rgba(255,255,255,0.07)",
+            }}
+          >
+            <h3 className="font-semibold text-[15px] text-white mb-4">Template Overview</h3>
             <TemplateDonutChart data={templateOverview} />
           </div>
 
-          <div className="bg-white rounded-2xl shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Recent Activity</h2>
+          {/* Quick actions */}
+          <div
+            className="rounded-2xl p-5"
+            style={{
+              background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
+              border: "1px solid rgba(255,255,255,0.07)",
+            }}
+          >
+            <h3 className="font-semibold text-[15px] text-white mb-4">Quick Actions</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {quickActions.map((a) => {
+                const Icon = a.icon;
+                return (
+                  <Link
+                    key={a.label}
+                    href={a.href}
+                    className="flex flex-col items-center gap-2 py-4 rounded-xl transition-all hover:scale-105"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    <div
+                      className="flex items-center justify-center w-10 h-10 rounded-xl"
+                      style={{ background: `${a.color}22` }}
+                    >
+                      <Icon size={18} style={{ color: a.color }} />
+                    </div>
+                    <span className="text-[12px] font-medium text-center" style={{ color: "rgba(255,255,255,0.7)" }}>
+                      {a.label}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Recent activity */}
+          <div
+            className="rounded-2xl p-5"
+            style={{
+              background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
+              border: "1px solid rgba(255,255,255,0.07)",
+            }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-[15px] text-white">Recent Activity</h3>
+              <Link href="/activity" className="text-xs font-medium" style={{ color: "rgba(124,58,237,0.9)" }}>
+                See all
+              </Link>
+            </div>
             <ul className="space-y-3">
-              <li className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-600">✓</div>
-                <div>
-                  <p className="text-sm">Campaign {"\"Order Update\""} completed</p>
-                  <p className="text-xs text-gray-400">2 minutes ago</p>
-                </div>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-600">💬</div>
-                <div>
-                  <p className="text-sm">Message delivered to +91 9876543210</p>
-                  <p className="text-xs text-gray-400">5 minutes ago</p>
-                </div>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-600">📝</div>
-                <div>
-                  <p className="text-sm">Template {"\"order_confirmation_v2\""} approved</p>
-                  <p className="text-xs text-gray-400">15 minutes ago</p>
-                </div>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-600">➕</div>
-                <div>
-                  <p className="text-sm">New contact added - Rahul Sharma</p>
-                  <p className="text-xs text-gray-400">30 minutes ago</p>
-                </div>
-              </li>
+              {activity.map((a, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <span
+                    className="flex items-center justify-center w-8 h-8 rounded-full text-sm flex-shrink-0 mt-0.5"
+                    style={{ background: `${a.color}20` }}
+                  >
+                    {a.icon}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] leading-snug" style={{ color: "rgba(255,255,255,0.75)" }}>
+                      {a.label}
+                    </p>
+                    <p className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.3)" }}>{a.time}</p>
+                  </div>
+                </li>
+              ))}
             </ul>
-
-            <div className="mt-4 text-center">
-              <Link href="/activity" className="text-sm text-green-600 font-medium">View All Activity</Link>
-            </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Quick Actions</h2>
-            <div className="grid grid-cols-4 gap-4">
-              <Link href="/contacts" className="flex flex-col items-center gap-2 py-3 bg-slate-50 rounded-lg">
-                <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center shadow-sm">
-                  <FaUsers className="text-2xl text-green-600" />
-                </div>
-                <span className="text-sm">Add Contact</span>
-              </Link>
-
-              <Link href="/templates" className="flex flex-col items-center gap-2 py-3 bg-slate-50 rounded-lg">
-                <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center shadow-sm">
-                  <FaFileAlt className="text-2xl text-green-600" />
-                </div>
-                <span className="text-sm">Create Template</span>
-              </Link>
-
-              <Link href="/campaigns" className="flex flex-col items-center gap-2 py-3 bg-slate-50 rounded-lg">
-                <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center shadow-sm">
-                  <FaBullhorn className="text-2xl text-green-600" />
-                </div>
-                <span className="text-sm">Create Campaign</span>
-              </Link>
-
-              <Link href="/whatsapp" className="flex flex-col items-center gap-2 py-3 bg-slate-50 rounded-lg">
-                <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center shadow-sm">
-                  <FaWhatsapp className="text-2xl text-green-600" />
-                </div>
-                <span className="text-sm">Send WhatsApp Message</span>
-              </Link>
-            </div>
-          </div>
         </div>
       </div>
-
-      
     </div>
   );
 }

@@ -1,15 +1,29 @@
 "use client";
-
 import { useEffect, useState, useMemo, useCallback } from "react";
-import {
-  getOrganizations,
-  getOrganization,
-  createOrganization,
-  updateOrganization,
-  deleteOrganization,
-} from "../../services/organizationService";
+import { getOrganizations, getOrganization, createOrganization, updateOrganization, deleteOrganization } from "../../services/organizationService";
 import { getDashboardSummary } from "../../services/dashboardService";
-import { FaPlus, FaEye, FaEdit, FaTrash, FaSearch, FaBuilding, FaCheckCircle, FaUsers, FaBullhorn } from "react-icons/fa";
+import { Plus, Eye, Edit2, Trash2, Search, Building2, CheckCircle, Users, Megaphone, X } from "lucide-react";
+
+const glass = { background: "linear-gradient(145deg,rgba(255,255,255,0.055) 0%,rgba(255,255,255,0.015) 100%)", border: "1px solid rgba(255,255,255,0.08)" };
+const inputStyle = { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.09)", color: "white", borderRadius: "10px", padding: "10px 14px", width: "100%", fontSize: "14px", outline: "none" };
+
+function StatCard({ icon: Icon, title, value, delta, color }: any) {
+  return (
+    <div className="rounded-2xl p-5 hover-lift" style={{ ...glass, position: "relative", overflow: "hidden" }}>
+      <div className="absolute -right-4 -top-4 w-20 h-20 rounded-full opacity-15 blur-xl pointer-events-none" style={{ background: color }} />
+      <div className="flex items-start justify-between relative">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.35)" }}>{title}</p>
+          <p className="text-3xl font-bold text-white tabular-nums">{typeof value === "number" ? value.toLocaleString() : value}</p>
+          {delta && <p className="text-xs mt-2" style={{ color: "#10b981" }}>↑ {delta}</p>}
+        </div>
+        <div className="flex items-center justify-center w-10 h-10 rounded-xl" style={{ background: color + "33" }}>
+          <Icon size={18} style={{ color }} />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function OrganizationsPage() {
   const [organizations, setOrganizations] = useState<any[]>([]);
@@ -23,365 +37,144 @@ export default function OrganizationsPage() {
 
   const loadOrganizations = useCallback(async () => {
     setLoading(true);
-    try {
-      const data = await getOrganizations(filters);
-      setOrganizations(data || []);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
+    try { setOrganizations(await getOrganizations(filters) || []); } catch { /* ignore */ } finally { setLoading(false); }
   }, [filters]);
 
+  useEffect(() => { loadOrganizations(); }, [loadOrganizations]);
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchOrganizations = async () => {
-      setLoading(true);
-      try {
-        const data = await getOrganizations(filters);
-        if (isMounted) {
-          setOrganizations(data || []);
-        }
-      } catch (error) {
-        console.error(error);
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void fetchOrganizations();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [filters]);
-
-  useEffect(() => {
-    const loadSummary = async () => {
-      try {
-        const data = await getDashboardSummary();
-        setSummary({ total_contacts: data.total_contacts, total_campaigns: data.total_campaigns });
-      } catch (error) {
-        console.error(error);
-      }
-    };
-
-    void loadSummary();
+    getDashboardSummary().then(d => setSummary({ total_contacts: d.total_contacts, total_campaigns: d.total_campaigns })).catch(() => { });
   }, []);
 
-  const openAddModal = () => {
-    setModalMode("add");
-    setSelectedOrg(null);
-    setFormData({ name: "", email: "", industry: "", status: "Active" });
-    setShowModal(true);
-  };
-
-  const openViewModal = async (id: any) => {
-    try {
-      const org = await getOrganization(id);
-      setModalMode("view");
-      setSelectedOrg(org);
-      setFormData({
-        name: org.name || "",
-        email: org.email || "",
-        industry: org.industry || "",
-        status: org.status || "Active",
-      });
-      setShowModal(true);
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
+  const openAddModal = () => { setModalMode("add"); setSelectedOrg(null); setFormData({ name: "", email: "", industry: "", status: "Active" }); setShowModal(true); };
   const openEditModal = async (id: any) => {
-    try {
-      const org = await getOrganization(id);
-      setModalMode("edit");
-      setSelectedOrg(org);
-      setFormData({
-        name: org.name || "",
-        email: org.email || "",
-        industry: org.industry || "",
-        status: org.status || "Active",
-      });
-      setShowModal(true);
-    } catch (error) {
-      console.error(error);
-    }
+    try { const o = await getOrganization(id); setModalMode("edit"); setSelectedOrg(o); setFormData({ name: o.name || "", email: o.email || "", industry: o.industry || "", status: o.status || "Active" }); setShowModal(true); } catch { /* ignore */ }
   };
-
+  const openViewModal = async (id: any) => {
+    try { const o = await getOrganization(id); setModalMode("view"); setSelectedOrg(o); setFormData({ name: o.name || "", email: o.email || "", industry: o.industry || "", status: o.status || "Active" }); setShowModal(true); } catch { /* ignore */ }
+  };
   const handleSave = async () => {
     if (!formData.name.trim()) return;
-
-    try {
-      if (modalMode === "edit" && selectedOrg) {
-        await updateOrganization(selectedOrg.id, formData);
-      } else {
-        await createOrganization(formData);
-      }
-      setShowModal(false);
-      loadOrganizations();
-    } catch (error) {
-      console.error(error);
-    }
+    try { if (modalMode === "edit" && selectedOrg) { await updateOrganization(selectedOrg.id, formData); } else { await createOrganization(formData); } setShowModal(false); loadOrganizations(); } catch { /* ignore */ }
   };
-
   const handleDelete = async (id: any) => {
     if (!confirm("Delete organization?")) return;
-    try {
-      await deleteOrganization(id);
-      loadOrganizations();
-    } catch (error) {
-      console.error(error);
-    }
+    try { await deleteOrganization(id); loadOrganizations(); } catch { /* ignore */ }
   };
 
-  const filteredOrgs = useMemo(() => organizations, [organizations]);
+  const active = organizations.filter(o => (o.status || "").toLowerCase() === "active").length;
 
   return (
-    <div className="p-8 bg-slate-100 min-h-screen">
-      <div className="flex flex-col gap-6 lg:flex-row lg:justify-between lg:items-center mb-8">
+    <div className="min-h-screen p-6 space-y-6 animate-fade-up">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold">Organizations</h1>
-          <p className="text-gray-500 mt-2">Manage your business organizations</p>
+          <h1 className="text-3xl font-bold text-white">Organizations</h1>
+          <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>Manage your business organizations</p>
         </div>
-
-        <button
-          onClick={openAddModal}
-          className="bg-[#25D366] text-white px-5 py-3 rounded-xl inline-flex items-center gap-3 shadow-lg hover:bg-[#22b85b] transition"
-        >
-          <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#25D366] shadow-sm">
-            <FaPlus className="text-xl" />
-          </span>
-          Add Organization
-        </button>
+        <button onClick={openAddModal} className="btn-glow flex items-center gap-2 text-sm"><Plus size={15} /> Add Organization</button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
-        <div className="bg-white rounded-[32px] p-6 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-3xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-sm">
-            <FaBuilding className="text-3xl" />
-          </div>
-          <div>
-            <p className="text-sm text-slate-400">Total Organizations</p>
-            <h3 className="text-2xl font-semibold mt-2">{organizations.length}</h3>
-            <p className="text-sm text-emerald-500 mt-3">↑ 20% from last month</p>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-[32px] p-6 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-3xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-sm">
-            <FaCheckCircle className="text-3xl" />
-          </div>
-          <div>
-            <p className="text-sm text-slate-400">Active Organizations</p>
-            <h3 className="text-2xl font-semibold mt-2">{organizations.filter((org) => (org.status || "").toLowerCase() === "active").length}</h3>
-            <p className="text-sm text-emerald-500 mt-3">↑ 16.7% from last month</p>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-[32px] p-6 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-3xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-sm">
-            <FaUsers className="text-3xl" />
-          </div>
-          <div>
-            <p className="text-sm text-slate-400">Total Contacts</p>
-            <h3 className="text-2xl font-semibold mt-2">{summary.total_contacts}</h3>
-            <p className="text-sm text-emerald-500 mt-3">↑ 18.4% from last month</p>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-[32px] p-6 shadow-sm flex items-center gap-4">
-          <div className="w-14 h-14 rounded-3xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-sm">
-            <FaBullhorn className="text-3xl" />
-          </div>
-          <div>
-            <p className="text-sm text-slate-400">Total Campaigns</p>
-            <h3 className="text-2xl font-semibold mt-2">{summary.total_campaigns}</h3>
-            <p className="text-sm text-emerald-500 mt-3">↑ 12.5% from last month</p>
-          </div>
-        </div>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard icon={Building2} title="Total Organizations" value={organizations.length} delta="20% this month" color="#7c3aed" />
+        <StatCard icon={CheckCircle} title="Active" value={active} delta="16.7% this month" color="#10b981" />
+        <StatCard icon={Users} title="Total Contacts" value={summary.total_contacts} delta="18.4% this month" color="#06b6d4" />
+        <StatCard icon={Megaphone} title="Total Campaigns" value={summary.total_campaigns} delta="12.5% this month" color="#f59e0b" />
       </div>
 
-      <div className="bg-white rounded-[32px] p-6 shadow-sm mb-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex-1 min-w-0">
-            <div className="relative">
-              <span className="absolute inset-y-0 left-4 flex items-center text-slate-400">
-                <FaSearch />
-              </span>
-              <input
-                value={filters.q}
-                onChange={(e) => setFilters({ ...filters, q: e.target.value })}
-                placeholder="Search organization..."
-                className="w-full rounded-3xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm shadow-sm focus:border-slate-300 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <select
-              value={filters.status}
-              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-              className="rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
-            >
-              <option value="all">All Status</option>
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-            </select>
-
-            <select
-              value={filters.sort}
-              onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
-              className="rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
-            >
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-            </select>
-          </div>
+      {/* Search + filters */}
+      <div className="rounded-2xl p-4 flex flex-wrap items-center gap-3" style={glass}>
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.3)" }} />
+          <input value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })} placeholder="Search organizations…"
+            className="pl-9 pr-4 py-2 text-sm rounded-xl w-full focus:outline-none placeholder:text-[rgba(255,255,255,0.2)]"
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "white" }} />
         </div>
+        {[{ key: "status", opts: [["all", "All Status"], ["Active", "Active"], ["Inactive", "Inactive"]] }, { key: "sort", opts: [["newest", "Newest"], ["oldest", "Oldest"]] }].map(({ key, opts }) => (
+          <select key={key} value={(filters as any)[key]} onChange={e => setFilters({ ...filters, [key]: e.target.value })}
+            className="px-3 py-2 text-sm rounded-xl focus:outline-none"
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)" }}>
+            {opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        ))}
       </div>
 
-      <div className="bg-white rounded-[32px] shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <div className="max-h-[520px] overflow-y-auto border-t border-slate-100">
-            <table className="w-full min-w-[960px] text-left table-fixed">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="sticky top-0 z-10 px-6 py-4 text-sm font-semibold text-slate-500 bg-slate-50">Organization Name</th>
-                  <th className="sticky top-0 z-10 px-6 py-4 text-sm font-semibold text-slate-500 bg-slate-50">Industry</th>
-                  <th className="sticky top-0 z-10 px-6 py-4 text-sm font-semibold text-slate-500 bg-slate-50">Contacts</th>
-                  <th className="sticky top-0 z-10 px-6 py-4 text-sm font-semibold text-slate-500 bg-slate-50">Campaigns</th>
-                  <th className="sticky top-0 z-10 px-6 py-4 text-sm font-semibold text-slate-500 bg-slate-50">Status</th>
-                  <th className="sticky top-0 z-10 px-6 py-4 text-sm font-semibold text-slate-500 bg-slate-50">Created Date</th>
-                  <th className="sticky top-0 z-10 px-6 py-4 text-sm font-semibold text-slate-500 bg-slate-50">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">Loading organizations…</td>
-                  </tr>
-                ) : filteredOrgs.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500">No organizations found.</td>
-                  </tr>
-                ) : (
-                  filteredOrgs.map((org) => (
-                    <tr key={org.id} className="border-b border-slate-100 hover:bg-slate-50 transition">
-                      <td className="px-6 py-5 align-top">
-                        <div className="flex items-center gap-3">
-                          <div className="h-12 w-12 rounded-full bg-emerald-500 text-white flex items-center justify-center font-semibold shadow-sm text-sm">
-                            {org.name?.split(" ").map((part: string) => part[0]).slice(0, 2).join("")}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-slate-900">{org.name}</div>
-                            <div className="text-xs text-slate-400">{org.email || "info@example.com"}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5 align-top text-slate-700">{org.industry || "—"}</td>
-                      <td className="px-6 py-5 align-top text-slate-700">{org.contacts_count ?? "—"}</td>
-                      <td className="px-6 py-5 align-top text-slate-700">{org.campaigns_count ?? "—"}</td>
-                      <td className="px-6 py-5 align-top">
-                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm ${org.status === "Active" ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-600"}`}>
-                          {org.status || "Active"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-5 align-top text-slate-700">{org.created_at ? new Date(org.created_at).toLocaleDateString() : "—"}</td>
-                      <td className="px-6 py-5 align-top">
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => openViewModal(org.id)} className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-slate-100 text-slate-600 transition hover:bg-slate-200">
-                            <FaEye className="text-lg" />
-                          </button>
-                          <button onClick={() => openEditModal(org.id)} className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-slate-100 text-slate-600 transition hover:bg-slate-200">
-                            <FaEdit className="text-lg" />
-                          </button>
-                          <button onClick={() => handleDelete(org.id)} className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-slate-100 text-rose-600 transition hover:bg-rose-100">
-                            <FaTrash className="text-lg" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+      {/* Table */}
+      <div className="rounded-2xl overflow-hidden" style={glass}>
+        <table className="data-table">
+          <thead>
+            <tr><th>Organization</th><th>Industry</th><th>Contacts</th><th>Campaigns</th><th>Status</th><th>Created</th><th className="text-center">Actions</th></tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={7} className="text-center py-12" style={{ color: "rgba(255,255,255,0.3)" }}>Loading…</td></tr>
+            ) : organizations.length === 0 ? (
+              <tr><td colSpan={7} className="text-center py-12" style={{ color: "rgba(255,255,255,0.25)" }}>No organizations found</td></tr>
+            ) : organizations.map(o => (
+              <tr key={o.id}>
+                <td>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                      style={{ background: "linear-gradient(135deg,#10b981,#059669)" }}>
+                      {(o.name || "?").split(" ").map((p: string) => p[0]).slice(0, 2).join("")}
+                    </div>
+                    <div>
+                      <p className="text-white font-medium text-sm">{o.name}</p>
+                      <p className="text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>{o.email || "—"}</p>
+                    </div>
+                  </div>
+                </td>
+                <td>{o.industry || "—"}</td>
+                <td>{o.contacts_count ?? "—"}</td>
+                <td>{o.campaigns_count ?? "—"}</td>
+                <td>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold"
+                    style={{ background: o.status === "Active" ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.06)", color: o.status === "Active" ? "#10b981" : "rgba(255,255,255,0.45)" }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: o.status === "Active" ? "#10b981" : "rgba(255,255,255,0.3)" }} />
+                    {o.status || "Active"}
+                  </span>
+                </td>
+                <td>{o.created_at ? new Date(o.created_at).toLocaleDateString() : "—"}</td>
+                <td>
+                  <div className="flex items-center justify-center gap-2">
+                    {[{ Icon: Eye, fn: () => openViewModal(o.id), c: "#06b6d4" }, { Icon: Edit2, fn: () => openEditModal(o.id), c: "#a78bfa" }, { Icon: Trash2, fn: () => handleDelete(o.id), c: "#f43f5e" }].map(({ Icon, fn, c }, k) => (
+                      <button key={k} onClick={fn} className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
+                        style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.07)" }}
+                        onMouseEnter={e => (e.currentTarget.style.background = c + "22")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
+                        <Icon size={13} style={{ color: c }} />
+                      </button>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
+      {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 py-8">
-          <div className="w-full max-w-2xl rounded-[32px] bg-white p-8 shadow-2xl">
-            <div className="flex items-start justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-3xl font-semibold">{modalMode === "edit" ? "Edit Organization" : modalMode === "view" ? "Organization Details" : "Add Organization"}</h2>
-                <p className="text-sm text-slate-500 mt-2">
-                  {modalMode === "view"
-                    ? "Review organization information."
-                    : modalMode === "edit"
-                    ? "Update organization details."
-                    : "Create a new organization record."}
-                </p>
-              </div>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}>
+          <div className="w-full max-w-lg rounded-2xl p-6 space-y-4" style={{ background: "#13162b", border: "1px solid rgba(255,255,255,0.1)" }}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-white">{modalMode === "edit" ? "Edit Organization" : modalMode === "view" ? "View Organization" : "Add Organization"}</h2>
+              <button onClick={() => setShowModal(false)} style={{ color: "rgba(255,255,255,0.4)" }}><X size={18} /></button>
             </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-sm font-medium text-slate-700">Organization name</span>
-                <input
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  disabled={modalMode === "view"}
-                  className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm focus:border-slate-300 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
-                />
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium text-slate-700">Email address</span>
-                <input
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  disabled={modalMode === "view"}
-                  className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm focus:border-slate-300 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
-                />
-              </label>
-              <label className="space-y-2 md:col-span-2">
-                <span className="text-sm font-medium text-slate-700">Industry</span>
-                <input
-                  value={formData.industry}
-                  onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
-                  disabled={modalMode === "view"}
-                  className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm focus:border-slate-300 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
-                />
-              </label>
-              <label className="space-y-2 md:col-span-2">
-                <span className="text-sm font-medium text-slate-700">Status</span>
-                <select
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                  disabled={modalMode === "view"}
-                  className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm focus:border-slate-300 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100"
-                >
-                  <option value="Active">Active</option>
-                  <option value="Inactive">Inactive</option>
-                </select>
-              </label>
+            <div className="grid grid-cols-2 gap-3">
+              {[["name", "Organization Name", "text"], ["email", "Email Address", "email"], ["industry", "Industry", "text"]].map(([key, ph, type]) => (
+                <input key={key} type={type} placeholder={ph as string} value={(formData as any)[key as string]}
+                  onChange={e => setFormData({ ...formData, [key]: e.target.value })} disabled={modalMode === "view"}
+                  className={`placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none ${key === "industry" ? "col-span-2" : ""}`}
+                  style={inputStyle} />
+              ))}
+              <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })} disabled={modalMode === "view"}
+                className="col-span-2 focus:outline-none" style={inputStyle}>
+                <option>Active</option><option>Inactive</option>
+              </select>
             </div>
-
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-end">
-              <button onClick={() => setShowModal(false)} className="rounded-3xl border border-slate-200 px-6 py-3 text-sm text-slate-600 transition hover:bg-slate-50">
-                Close
-              </button>
-              {modalMode !== "view" && (
-                <button onClick={handleSave} className="rounded-3xl bg-[#25D366] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#22b85b]">
-                  Save Organization
-                </button>
-              )}
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setShowModal(false)} className="px-4 py-2.5 rounded-xl text-sm"
+                style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.08)" }}>Close</button>
+              {modalMode !== "view" && <button onClick={handleSave} className="btn-glow text-sm px-5 py-2.5">Save</button>}
             </div>
           </div>
         </div>

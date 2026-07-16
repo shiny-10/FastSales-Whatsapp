@@ -1,194 +1,102 @@
 "use client";
 
-import {
-  Eye,
-  Pencil,
-  Trash2,
-} from "lucide-react";
+import { Eye, Pencil, Trash2 } from "lucide-react";
 
 interface Campaign {
   id: number;
-  name: string;
-  status: "completed" | "running" | "scheduled";
-  recipients: number;
-  messagesSent: number;
-  createdAt: string;
+  name?: string;
+  campaign_name?: string;
+  status?: string;
+  recipients?: number;
+  contact_count?: number;
+  messagesSent?: number;
+  createdAt?: string;
+  created_at?: string;
 }
 
 interface CampaignsTableProps {
   campaigns: Campaign[];
 }
 
-export default function CampaignsTable({
-  campaigns,
-}: CampaignsTableProps) {
+export default function CampaignsTable({ campaigns }: CampaignsTableProps) {
+  if (!campaigns.length) {
+    return (
+      <div className="px-5 py-10 text-center text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>
+        No campaigns yet.
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6">
-
-      <div className="flex items-center justify-between mb-6">
-
-        <h2 className="text-xl font-bold">
-          Recent Campaigns
-        </h2>
-
-        <button className="text-green-600 font-semibold hover:underline">
-          View All
-        </button>
-
-      </div>
-
-      <div className="overflow-x-auto">
-
-        <table className="w-full">
-
-          <thead>
-
-            <tr className="border-b text-gray-500 text-sm">
-
-              <th className="text-left py-4">
-                Campaign Name
-              </th>
-
-              <th className="text-left">
-                Status
-              </th>
-
-              <th className="text-left">
-                Recipients
-              </th>
-
-              <th className="text-left">
-                Messages Sent
-              </th>
-
-              <th className="text-left">
-                Created
-              </th>
-
-              <th className="text-center">
-                Actions
-              </th>
-
+    <div className="overflow-x-auto">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Campaign</th>
+            <th>Status</th>
+            <th>Recipients</th>
+            <th>Sent</th>
+            <th>Created</th>
+            <th className="text-center">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {campaigns.map((c) => (
+            <tr key={c.id}>
+              <td>
+                <span className="font-medium text-white">
+                  {c.name ?? c.campaign_name ?? "—"}
+                </span>
+              </td>
+              <td>
+                <StatusBadge status={(c.status ?? "scheduled") as any} />
+              </td>
+              <td>{(c.recipients ?? c.contact_count ?? 0).toLocaleString()}</td>
+              <td>{(c.messagesSent ?? 0).toLocaleString()}</td>
+              <td>
+                {c.createdAt ?? (c.created_at ? new Date(c.created_at).toLocaleDateString() : "—")}
+              </td>
+              <td>
+                <div className="flex items-center justify-center gap-2">
+                  {[
+                    { Icon: Eye,    color: "rgba(255,255,255,0.5)", hover: "rgba(6,182,212,0.2)"   },
+                    { Icon: Pencil, color: "rgba(255,255,255,0.5)", hover: "rgba(124,58,237,0.2)"  },
+                    { Icon: Trash2, color: "rgba(244,63,94,0.7)",   hover: "rgba(244,63,94,0.15)" },
+                  ].map(({ Icon, color, hover }, i) => (
+                    <button
+                      key={i}
+                      className="flex items-center justify-center w-7 h-7 rounded-lg transition-colors"
+                      style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.06)" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = hover)}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                    >
+                      <Icon size={13} style={{ color }} />
+                    </button>
+                  ))}
+                </div>
+              </td>
             </tr>
-
-          </thead>
-
-          <tbody>
-
-            {campaigns.map((campaign) => (
-
-              <tr
-                key={campaign.id}
-                className="border-b hover:bg-gray-50 transition"
-              >
-
-                <td className="py-5 font-medium">
-
-                  {campaign.name}
-
-                </td>
-
-                <td>
-
-                  <StatusBadge
-                    status={campaign.status}
-                  />
-
-                </td>
-
-                <td>
-
-                  {campaign.recipients}
-
-                </td>
-
-                <td>
-
-                  {campaign.messagesSent}
-
-                </td>
-
-                <td>
-
-                  {campaign.createdAt}
-
-                </td>
-
-                <td>
-
-                  <div className="flex justify-center gap-3">
-
-                    <button className="h-9 w-9 rounded-full bg-gray-100 hover:bg-green-100 flex items-center justify-center">
-
-                      <Eye
-                        size={17}
-                        className="text-gray-700"
-                      />
-
-                    </button>
-
-                    <button className="h-9 w-9 rounded-full bg-gray-100 hover:bg-blue-100 flex items-center justify-center">
-
-                      <Pencil
-                        size={17}
-                        className="text-blue-600"
-                      />
-
-                    </button>
-
-                    <button className="h-9 w-9 rounded-full bg-gray-100 hover:bg-red-100 flex items-center justify-center">
-
-                      <Trash2
-                        size={17}
-                        className="text-red-600"
-                      />
-
-                    </button>
-
-                  </div>
-
-                </td>
-
-              </tr>
-
-            ))}
-
-          </tbody>
-
-        </table>
-
-      </div>
-
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-interface StatusProps {
-  status: "completed" | "running" | "scheduled";
-}
-
-function StatusBadge({
-  status,
-}: StatusProps) {
-  if (status === "completed") {
-    return (
-      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-        Completed
-      </span>
-    );
-  }
-
-  if (status === "running") {
-    return (
-      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">
-        Running
-      </span>
-    );
-  }
-
+function StatusBadge({ status }: { status: "completed" | "running" | "scheduled" }) {
+  const map = {
+    completed: { label: "Completed", bg: "rgba(16,185,129,0.15)", color: "#10b981" },
+    running:   { label: "Running",   bg: "rgba(245,158,11,0.15)", color: "#f59e0b" },
+    scheduled: { label: "Scheduled", bg: "rgba(99,102,241,0.15)", color: "#818cf8" },
+  };
+  const s = map[status] ?? map.scheduled;
   return (
-    <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-      Scheduled
+    <span
+      className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold"
+      style={{ background: s.bg, color: s.color }}
+    >
+      <span className="w-1.5 h-1.5 rounded-full mr-1.5 inline-block" style={{ background: s.color }} />
+      {s.label}
     </span>
   );
 }

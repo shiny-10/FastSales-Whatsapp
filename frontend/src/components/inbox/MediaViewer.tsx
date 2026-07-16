@@ -18,11 +18,13 @@ export function MediaViewer({ mediaFiles, messageType, className }: MediaViewerP
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
 
-  if (mediaFiles.length === 0) return null;
-
   const file = mediaFiles[0];
-  const { data: signedMedia } = useSignedMediaUrl(file.id);
-  const url = signedMedia?.signed_url || (file.file_url?.startsWith("http://") || file.file_url?.startsWith("https://") ? file.file_url : undefined);
+  // Call hook with stable id (or null) to ensure hooks are unconditional
+  const fileId = file?.id ?? null;
+  const { data: signedMedia } = useSignedMediaUrl(fileId);
+  const url = signedMedia?.signed_url || (file?.file_url && (file.file_url.startsWith("http://") || file.file_url.startsWith("https://")) ? file.file_url : undefined);
+
+  if (mediaFiles.length === 0) return null;
 
   if (!url) {
     return null;

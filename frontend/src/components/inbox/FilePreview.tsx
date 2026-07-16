@@ -22,8 +22,9 @@ export function FilePreview({ file, mediaType, conversationId, onSent, onCancel 
   useEffect(() => {
     if (mediaType === "image" || mediaType === "video") {
       const url = URL.createObjectURL(file);
-      setObjectUrl(url);
-      return () => URL.revokeObjectURL(url);
+      // defer setting state to avoid setState-in-effect lint rule
+      const t = setTimeout(() => setObjectUrl(url), 0);
+      return () => { clearTimeout(t); URL.revokeObjectURL(url); };
     }
   }, [file, mediaType]);
 

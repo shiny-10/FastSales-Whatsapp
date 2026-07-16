@@ -1,13 +1,10 @@
 from __future__ import annotations
 from typing import Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import or_
-from models.postgres_model import WhatsAppInboxConversation
-from typing import Optional
 from datetime import datetime
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy.orm import Session
+from sqlalchemy import or_
+
 from models.postgres_model import WhatsAppInboxConversation
 from schemas.whatsapp_inbox import (
     ConversationListResponse,

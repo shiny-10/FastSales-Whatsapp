@@ -1,11 +1,20 @@
 "use client";
-
 import { useState } from "react";
 import { X, Send, Loader2, Plus, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { useSendTemplateMessage } from "@/hooks/use-messages";
 import { useInboxStore } from "@/store/inbox-store";
 import type { Message } from "@/lib/types";
+
+const inputCls = {
+  background: "#f5f6fa",
+  border: "1.5px solid #e8eaf0",
+  borderRadius: "10px",
+  padding: "9px 14px",
+  width: "100%",
+  fontSize: "13px",
+  color: "#1a1d23",
+  outline: "none",
+} as const;
 
 interface TemplateModalProps {
   conversationId: string;
@@ -22,79 +31,69 @@ export function TemplateModal({ conversationId, onSent, onClose }: TemplateModal
 
   const handleSend = async () => {
     if (!templateName.trim()) return;
-    const components = variables.some((v) => v.trim())
-      ? [{ type: "body", parameters: variables.filter((v) => v.trim()).map((v) => ({ type: "text", text: v })) }]
+    const components = variables.some(v => v.trim())
+      ? [{ type: "body", parameters: variables.filter(v => v.trim()).map(v => ({ type: "text", text: v })) }]
       : undefined;
-
     try {
-      const msg = await sendTemplate({
-        conversation_id: conversationId,
-        template_name: templateName.trim(),
-        language_code: languageCode,
-        components,
-      });
-      addMessage(msg);
-      onSent(msg);
-      onClose();
-    } catch (e) {
-      console.error("Template send failed", e);
-    }
+      const msg = await sendTemplate({ conversation_id: conversationId, template_name: templateName.trim(), language_code: languageCode, components });
+      addMessage(msg); onSent(msg); onClose();
+    } catch { /* ignore */ }
   };
 
+  const labelStyle = { fontSize: "11px", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "#b0b3c6", marginBottom: "6px", display: "block" };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-white dark:bg-[#202c33] rounded-2xl shadow-2xl w-full max-w-md mx-4">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="font-semibold text-base">Send Template</h2>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-            <X className="h-5 w-5" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }}>
+      <div className="w-full max-w-md mx-4 rounded-2xl shadow-2xl overflow-hidden" style={{ background: "#ffffff", border: "1px solid #e8eaf0" }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid #f0f1f5" }}>
+          <h2 className="font-semibold text-base" style={{ color: "#1a1d23" }}>Send Template</h2>
+          <button type="button" onClick={onClose} className="flex items-center justify-center w-7 h-7 rounded-lg transition-colors"
+            style={{ background: "#f5f6fa", color: "#9498b0" }}
+            onMouseEnter={e => (e.currentTarget.style.background = "#e8eaf0")}
+            onMouseLeave={e => (e.currentTarget.style.background = "#f5f6fa")}>
+            <X className="h-4 w-4" />
           </button>
         </div>
 
+        {/* Body */}
         <div className="p-5 space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1.5">Template Name</label>
-            <input
-              value={templateName}
-              onChange={(e) => setTemplateName(e.target.value)}
-              placeholder="e.g. hello_world"
-              className="w-full bg-gray-100 dark:bg-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none placeholder:text-gray-400"
-            />
+            <span style={labelStyle}>Template Name</span>
+            <input value={templateName} onChange={e => setTemplateName(e.target.value)}
+              placeholder="e.g. hello_world" style={inputCls} className="placeholder:text-[#c0c3d6] focus:outline-none"
+              onFocus={e => (e.currentTarget.style.borderColor = "#7c3aed44")}
+              onBlur={e => (e.currentTarget.style.borderColor = "#e8eaf0")} />
           </div>
-
           <div>
-            <label className="block text-sm font-medium mb-1.5">Language Code</label>
-            <input
-              value={languageCode}
-              onChange={(e) => setLanguageCode(e.target.value)}
-              placeholder="en_US"
-              className="w-full bg-gray-100 dark:bg-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none"
-            />
+            <span style={labelStyle}>Language Code</span>
+            <input value={languageCode} onChange={e => setLanguageCode(e.target.value)}
+              placeholder="en_US" style={inputCls} className="focus:outline-none"
+              onFocus={e => (e.currentTarget.style.borderColor = "#7c3aed44")}
+              onBlur={e => (e.currentTarget.style.borderColor = "#e8eaf0")} />
           </div>
-
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-sm font-medium">Variables (&#123;&#123;1&#125;&#125;, &#123;&#123;2&#125;&#125;…)</label>
-              <button
-                type="button"
-                onClick={() => setVariables((v) => [...v, ""])}
-                className="text-xs text-brand-600 dark:text-brand-400 flex items-center gap-1 hover:underline"
-              >
+              <span style={labelStyle}>Variables</span>
+              <button type="button" onClick={() => setVariables(v => [...v, ""])}
+                className="flex items-center gap-1 text-xs font-medium transition-colors"
+                style={{ color: "#7c3aed" }}>
                 <Plus className="h-3 w-3" /> Add
               </button>
             </div>
             <div className="space-y-2">
               {variables.map((v, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 w-6 shrink-0">{`{{${i + 1}}}`}</span>
-                  <input
-                    value={v}
-                    onChange={(e) => setVariables((prev) => prev.map((x, j) => j === i ? e.target.value : x))}
-                    placeholder={`Variable ${i + 1}`}
-                    className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-xl px-3 py-1.5 text-sm focus:outline-none placeholder:text-gray-400"
-                  />
+                  <span className="text-xs w-8 shrink-0 font-mono" style={{ color: "#b0b3c6" }}>{`{{${i+1}}}`}</span>
+                  <input value={v} onChange={e => setVariables(prev => prev.map((x, j) => j === i ? e.target.value : x))}
+                    placeholder={`Variable ${i+1}`} style={{ ...inputCls, flex: 1, width: "auto" }}
+                    className="placeholder:text-[#c0c3d6] focus:outline-none" />
                   {variables.length > 1 && (
-                    <button type="button" onClick={() => setVariables((prev) => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500">
+                    <button type="button" onClick={() => setVariables(prev => prev.filter((_, j) => j !== i))}
+                      style={{ color: "#d0d2e0" }}
+                      onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")}
+                      onMouseLeave={e => (e.currentTarget.style.color = "#d0d2e0")}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -104,16 +103,21 @@ export function TemplateModal({ conversationId, onSent, onClose }: TemplateModal
           </div>
         </div>
 
+        {/* Footer */}
         <div className="flex gap-2 px-5 pb-5">
-          <Button variant="ghost" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button
-            onClick={handleSend}
-            disabled={!templateName.trim() || isPending}
-            className="flex-1 bg-[#00a884] hover:bg-[#00956f] text-white gap-2"
-          >
+          <button type="button" onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-colors"
+            style={{ background: "#f5f6fa", color: "#4b4f6b", border: "1px solid #e8eaf0" }}
+            onMouseEnter={e => (e.currentTarget.style.background = "#e8eaf0")}
+            onMouseLeave={e => (e.currentTarget.style.background = "#f5f6fa")}>
+            Cancel
+          </button>
+          <button type="button" onClick={handleSend} disabled={!templateName.trim() || isPending}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-60"
+            style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", boxShadow: "0 4px 14px rgba(124,58,237,0.35)" }}>
             {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             Send Template
-          </Button>
+          </button>
         </div>
       </div>
     </div>

@@ -31,7 +31,7 @@ def list_messages(conversation_id: int, limit: int = 50):
                 "conversation_id": m.conversation_id,
                 "direction": m.direction,
                 "text": m.text,
-                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "created_at": m.created_at.isoformat() + "Z" if m.created_at else None,
             })
         return {"success": True, "messages": out}
     finally:
@@ -41,8 +41,13 @@ def list_messages(conversation_id: int, limit: int = 50):
 def send_message(payload: SendMessageRequest, user: dict = Depends(get_current_user)):
     # Use MetaWhatsAppService to send template messages; record in MessageLog and ConversationMessage
     db = SessionLocal()
+    meta_access_token = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN
+    meta_phone_number_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID
+    if not meta_access_token or not meta_phone_number_id:
+        raise HTTPException(status_code=400, detail="WhatsApp send credentials are not configured. Set META_ACCESS_TOKEN and META_WHATSAPP_PHONE_NUMBER_ID.")
+
     try:
-        meta = MetaWhatsAppService(settings.ACCESS_TOKEN, settings.PHONE_NUMBER_ID)
+        meta = MetaWhatsAppService(meta_access_token, meta_phone_number_id)
         result = None
         if payload.message_type == "template":
             result = meta.send_template_message(payload.to, payload.template_name)
@@ -50,6 +55,9 @@ def send_message(payload: SendMessageRequest, user: dict = Depends(get_current_u
             result = meta.send_text_message(payload.to, payload.text or "")
         else:
             result = {"success": False, "error": "Unknown message type"}
+
+        if isinstance(result, dict) and result.get("success") is False:
+            raise HTTPException(status_code=400, detail=result.get("error", "WhatsApp send failed"))
 
         # Determine organization from conversation if available
         conv = db.query(Conversation).filter(Conversation.id == payload.conversation_id).first()
@@ -90,7 +98,7 @@ def send_message(payload: SendMessageRequest, user: dict = Depends(get_current_u
                     "id": conv_msg.id,
                     "text": conv_msg.text,
                     "direction": conv_msg.direction,
-                    "created_at": conv_msg.created_at.isoformat() if conv_msg.created_at else None,
+                    "created_at": conv_msg.created_at.isoformat() + "Z" if conv_msg.created_at else None,
                 }
             }))
         except Exception:
@@ -102,3 +110,4 @@ def send_message(payload: SendMessageRequest, user: dict = Depends(get_current_u
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+

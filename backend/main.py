@@ -12,7 +12,7 @@ from services.scheduler_service import start_scheduler
 from routes.dashboard import router as dashboard_router
 from routes.templates import router as template_router
 from routes.whatsapp import router as whatsapp_router
-from routes.webhooks import router as webhook_router
+from routes.webhooks import router as webhook_router, verify_webhook, webhook as webhook_post
 from routes.campaign import router as campaign_router
 from routes.conversations import router as conversations_router
 from routes.auto_replies import router as auto_replies_router
@@ -39,11 +39,15 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "ws://localhost:8000",
+        "ws://127.0.0.1:8000",
         "http://localhost",
         "http://127.0.0.1",
         *settings.CORS_ORIGINS,
     ],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.[0-9]{1,3}\.[0-9]{1,3}):(\d+)$",
+    allow_origin_regex=r"^(https?|wss?)://(localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.[0-9]{1,3}\.[0-9]{1,3})(:(\d+))?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,6 +61,8 @@ app.include_router(dashboard_router,          prefix="/api/dashboard",      tags
 app.include_router(template_router,           prefix="/api/templates",       tags=["Templates"])
 app.include_router(whatsapp_router,           prefix="/api/whatsapp",        tags=["WhatsApp"])
 app.include_router(webhook_router,            prefix="/api",                 tags=["Webhooks"])
+app.add_api_route("/webhook", verify_webhook, methods=["GET"], tags=["Webhooks"])
+app.add_api_route("/webhook", webhook_post, methods=["POST"], tags=["Webhooks"])
 app.include_router(campaign_router,           prefix="/api/campaign",        tags=["Campaign"])
 app.include_router(conversations_router,      prefix="/api",                 tags=["Conversations"])
 app.include_router(inbox_messages_router,     prefix="/api",                 tags=["Inbox Messages"])

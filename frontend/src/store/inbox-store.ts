@@ -65,12 +65,15 @@ export const useInboxStore = create<InboxState>()((set, get) => ({
   addMessage: (message) =>
     set((state) => {
       const existing = state.messages[message.conversation_id] ?? [];
-      const hasDuplicate = existing.some((m) => m.id === message.id);
+      // Normalise id to string to avoid "9" vs 9 duplicate key issues
+      const msgId = String(message.id);
+      const convId = String(message.conversation_id);
+      const hasDuplicate = existing.some((m) => String(m.id) === msgId);
       return {
         messages: {
           ...state.messages,
-          [message.conversation_id]: hasDuplicate
-            ? existing.map((m) => (m.id === message.id ? message : m))
+          [convId]: hasDuplicate
+            ? existing.map((m) => (String(m.id) === msgId ? message : m))
             : [...existing, message],
         },
       };
@@ -87,10 +90,13 @@ export const useInboxStore = create<InboxState>()((set, get) => ({
     }),
   updateMessageStatus: (messageRef, status) =>
     set((state) => {
+      const ref = String(messageRef);
       const updatedMessages = { ...state.messages };
       for (const convId in updatedMessages) {
         updatedMessages[convId] = updatedMessages[convId].map((m) =>
-          m.meta_message_id === messageRef || m.id === messageRef
+          m.meta_message_id === ref ||
+          String(m.id) === ref ||
+          m.meta_message_id === messageRef
             ? { ...m, status }
             : m
         );
@@ -100,17 +106,18 @@ export const useInboxStore = create<InboxState>()((set, get) => ({
 
   addReaction: (reaction) =>
     set((state) => {
+      const reactionMsgId = String(reaction.message_id);
       const updatedMessages = { ...state.messages };
       for (const convId in updatedMessages) {
         updatedMessages[convId] = updatedMessages[convId].map((m) => {
-          if (m.id === reaction.message_id) {
-            const existingIdx = m.reactions.findIndex(
+          if (String(m.id) === reactionMsgId) {
+            const existingIdx = (m.reactions ?? []).findIndex(
               (r) => r.customer_phone === reaction.customer_phone
             );
             const reactions =
               existingIdx >= 0
-                ? m.reactions.map((r, i) => (i === existingIdx ? reaction : r))
-                : [...m.reactions, reaction];
+                ? (m.reactions ?? []).map((r, i) => (i === existingIdx ? reaction : r))
+                : [...(m.reactions ?? []), reaction];
             return { ...m, reactions };
           }
           return m;

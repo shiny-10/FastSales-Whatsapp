@@ -21,7 +21,7 @@ export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({
       mode: "system",
-      accent: "green",
+      accent: "purple",
       wallpaper: "default",
       fontSize: "medium",
       setMode: (mode) => set({ mode }),

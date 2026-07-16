@@ -1,38 +1,34 @@
 "use client";
-
 import { useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
-import { MessageSquare, Archive } from "lucide-react";
+import { MessageSquareDashed, Plus, SlidersHorizontal } from "lucide-react";
 import { useConversations } from "@/hooks/use-conversations";
 import { useInboxStore } from "@/store/inbox-store";
 import { ConversationCard } from "./ConversationCard";
 import { ConversationSkeleton } from "./ConversationSkeleton";
-import { SearchBar } from "./SearchBar";
 import { NewContactModal } from "./NewContactModal";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { useSocket } from "@/lib/socket-context";
 import type { ConversationStatus } from "@/lib/types";
 
-const TABS: Array<{ label: string; status: ConversationStatus | null; archived?: boolean }> = [
-  { label: "All", status: null },
-  { label: "Open", status: "OPEN" },
-  { label: "Pending", status: "PENDING" },
-  { label: "Resolved", status: "RESOLVED" },
-  { label: "Closed", status: "CLOSED" },
-  { label: "Archived", status: null, archived: true },
+const TABS: Array<{ label: string; status: ConversationStatus | null; archived?: boolean; badge?: number }> = [
+  { label: "All Messages", status: null },
+  { label: "Unread",       status: "OPEN" },
+  { label: "Waiting",      status: "PENDING" },
+  { label: "Assigned",     status: "RESOLVED" },
+  { label: "Archived",     status: null, archived: true },
 ];
 
 export function ConversationList() {
   const {
-    activeConversationId,
-    setActiveConversation,
-    setConversations,
-    searchQuery,
-    statusFilter,
-    setStatusFilter,
-    archivedFilter,
-    setArchivedFilter,
+    activeConversationId, setActiveConversation,
+    setConversations, searchQuery, setSearchQuery,
+    statusFilter, setStatusFilter,
+    archivedFilter, setArchivedFilter,
   } = useInboxStore();
+
+  const { connected } = useSocket();
 
   const { data, isLoading } = useConversations({
     search: searchQuery || undefined,
@@ -43,83 +39,137 @@ export function ConversationList() {
 
   useEffect(() => {
     if (data?.items) setConversations(data.items);
-  }, [data]);
+  }, [data, setConversations]);
 
   const conversations = data?.items ?? [];
+  const activeTabKey = archivedFilter ? "Archived" : statusFilter ?? "All Messages";
 
-  const activeTab = archivedFilter ? "Archived" : (statusFilter ?? "All");
-
-  const handleTabClick = (tab: typeof TABS[number]) => {
-    if (tab.archived) {
-      setStatusFilter(null);
-      setArchivedFilter(true);
-    } else {
-      setArchivedFilter(null);
-      setStatusFilter(tab.status);
-    }
+  const handleTabClick = (tab: (typeof TABS)[number]) => {
+    if (tab.archived) { setStatusFilter(null); setArchivedFilter(true); }
+    else { setArchivedFilter(null); setStatusFilter(tab.status); }
   };
 
   return (
-    <div className="flex flex-col h-full border-r border-border bg-background">
-      {/* Header */}
-      <div className="px-4 pt-5 pb-3 border-b border-border space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="font-semibold text-base">Conversations</h2>
-          <NewContactModal onCreated={(conversationId) => setActiveConversation(conversationId)} />
+    <div className="flex flex-col h-full" style={{ background: "#ffffff" }}>
+
+      {/* ── Header ── */}
+      <div
+        className="px-5 pt-5 pb-3 flex-shrink-0"
+        style={{ borderBottom: "1px solid #f0f1f5" }}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-xl font-bold" style={{ color: "#1a1d23" }}>Messages</h2>
+            {/* Live dot */}
+            <span
+              title={connected ? "Live" : "Connecting…"}
+              className={cn(
+                "inline-block w-2 h-2 rounded-full transition-colors",
+                connected ? "bg-emerald-500" : "bg-amber-400 animate-pulse"
+              )}
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              className="flex items-center justify-center w-8 h-8 rounded-lg transition-colors"
+              style={{ background: "#f5f6fa", color: "#8b8fa8" }}
+              onMouseEnter={e => (e.currentTarget.style.background = "#ebebf5")}
+              onMouseLeave={e => (e.currentTarget.style.background = "#f5f6fa")}
+              title="Filter"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+            </button>
+            <NewContactModal onCreated={(id) => setActiveConversation(id)} />
+          </div>
         </div>
-        <SearchBar />
-        {/* Status Tabs */}
-        <div className="flex gap-1 overflow-x-auto scrollbar-none -mx-1 px-1 pb-0.5">
+
+        {/* Search */}
+        <div className="relative mb-3">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={{ color: "#b0b3c6" }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search something..."
+            className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl focus:outline-none transition-all"
+            style={{
+              background: "#f5f6fa",
+              border: "1.5px solid #f0f1f5",
+              color: "#1a1d23",
+              fontSize: "13px",
+            }}
+            onFocus={e => (e.currentTarget.style.borderColor = "#7c3aed44")}
+            onBlur={e => (e.currentTarget.style.borderColor = "#f0f1f5")}
+          />
+        </div>
+
+        {/* Filter tabs */}
+        <div className="flex gap-1 overflow-x-auto scrollbar-none">
           {TABS.map((tab) => {
-            const isActive = activeTab === (tab.archived ? "Archived" : (tab.status ?? "All"));
+            const key = tab.archived ? "Archived" : (tab.status ?? "All Messages");
+            const isActive = activeTabKey === key;
+            const count = tab.label === "All Messages" ? data?.total : undefined;
             return (
               <button
                 key={tab.label}
                 type="button"
                 onClick={() => handleTabClick(tab)}
-                className={cn(
-                  "shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap",
-                  isActive
-                    ? "bg-brand-600 text-white"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
-                )}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap"
+                style={{
+                  background: isActive ? "#7c3aed" : "transparent",
+                  color: isActive ? "#ffffff" : "#8b8fa8",
+                }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "#f5f6fa"; }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
               >
-                {tab.archived ? <span className="flex items-center gap-1"><Archive className="h-3 w-3" />{tab.label}</span> : tab.label}
+                {tab.label}
+                {count !== undefined && count > 0 && (
+                  <span
+                    className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold px-1"
+                    style={{
+                      background: isActive ? "rgba(255,255,255,0.25)" : "#7c3aed",
+                      color: isActive ? "#ffffff" : "#ffffff",
+                    }}
+                  >
+                    {count > 99 ? "99+" : count}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* List */}
-      <ScrollArea className="flex-1">
-        <div className="py-2 space-y-0.5">
-          {isLoading ? (
-            <ConversationSkeleton />
-          ) : conversations.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-              <MessageSquare className="h-10 w-10 text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">No conversations found</p>
-            </div>
-          ) : (
-            <AnimatePresence initial={false}>
-              {conversations.map((conv) => (
-                <ConversationCard
-                  key={conv.id}
-                  conversation={conv}
-                  isActive={activeConversationId === conv.id}
-                  onClick={() => setActiveConversation(conv.id)}
-                />
-              ))}
-            </AnimatePresence>
-          )}
-        </div>
+      {/* ── List ── */}
+      <ScrollArea className="flex-1 overflow-y-auto">
+        {isLoading ? (
+          <ConversationSkeleton />
+        ) : conversations.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <MessageSquareDashed className="h-10 w-10" style={{ color: "#e0e2eb" }} />
+            <p className="text-sm" style={{ color: "#b0b3c6" }}>No conversations found</p>
+          </div>
+        ) : (
+          <AnimatePresence initial={false}>
+            {conversations.map((conv) => (
+              <ConversationCard
+                key={conv.id}
+                conversation={conv}
+                isActive={activeConversationId === conv.id}
+                onClick={() => setActiveConversation(conv.id)}
+              />
+            ))}
+          </AnimatePresence>
+        )}
       </ScrollArea>
 
-      {/* Footer count */}
-      {data && (
-        <div className="px-4 py-2 border-t border-border">
-          <p className="text-xs text-muted-foreground">
+      {/* ── Footer ── */}
+      {data && data.total > 0 && (
+        <div className="px-5 py-2 flex-shrink-0" style={{ borderTop: "1px solid #f0f1f5" }}>
+          <p className="text-[11px]" style={{ color: "#b0b3c6" }}>
             {data.total} conversation{data.total !== 1 ? "s" : ""}
           </p>
         </div>

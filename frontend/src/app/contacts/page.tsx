@@ -1,30 +1,29 @@
 "use client";
-
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FaSearch, FaPlus, FaEye, FaEdit, FaTrash, FaWhatsapp, FaFilter, FaUsers, FaCheckCircle, FaCalendarAlt, FaTags } from "react-icons/fa";
-import {
-  getContacts,
-  createContact,
-  updateContact,
-  deleteContactApi,
-  importContacts,
-} from "../../services/contactService";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Search, Plus, Eye, Edit2, Trash2, Filter, Users, CheckCircle, CalendarDays, Tag, Upload, X, Phone } from "lucide-react";
+import { getContacts, createContact, updateContact, deleteContactApi, importContacts } from "../../services/contactService";
 import { getOrganizations } from "../../services/organizationService";
 
-const StatCard = ({ icon, title, value, delta }: { icon: any, title: any, value: any, delta: any }) => (
-  <div className="bg-white rounded-lg p-4 shadow-sm w-full md:w-1/4">
-    <div className="flex items-center gap-4">
-      <div className="h-14 w-14 rounded-full bg-green-50 flex items-center justify-center">
-        <div className="text-green-600 text-2xl">{icon}</div>
-      </div>
-      <div>
-        <div className="text-sm text-gray-500">{title}</div>
-        <div className="text-2xl font-semibold">{value}</div>
-        {delta && <div className="text-sm text-green-500 mt-1">{delta}</div>}
+const glass = { background: "linear-gradient(145deg,rgba(255,255,255,0.055) 0%,rgba(255,255,255,0.015) 100%)", border: "1px solid rgba(255,255,255,0.08)" };
+const inputStyle = { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.09)", color: "white", borderRadius: "10px", padding: "10px 14px", width: "100%", fontSize: "14px", outline: "none" };
+
+function StatCard({ icon: Icon, title, value, delta, color }: any) {
+  return (
+    <div className="rounded-2xl p-5 hover-lift" style={{ ...glass, position: "relative", overflow: "hidden" }}>
+      <div className="absolute -right-4 -top-4 w-20 h-20 rounded-full opacity-15 blur-xl pointer-events-none" style={{ background: color }} />
+      <div className="flex items-start justify-between relative">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.35)" }}>{title}</p>
+          <p className="text-3xl font-bold text-white tabular-nums">{typeof value === "number" ? value.toLocaleString() : value}</p>
+          {delta && <p className="text-xs mt-2" style={{ color: "#10b981" }}>↑ {delta}</p>}
+        </div>
+        <div className="flex items-center justify-center w-10 h-10 rounded-xl" style={{ background: color + "33" }}>
+          <Icon size={18} style={{ color }} />
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+}
 
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<any[]>([]);
@@ -35,458 +34,218 @@ export default function ContactsPage() {
   const [viewContact, setViewContact] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [newContact, setNewContact] = useState({ name: "", phone: "", email: "", organization_id: "", status: "Active" });
 
   const loadOrganizations = useCallback(async () => {
-    try {
-      const data = await getOrganizations();
-      setOrganizations(data || []);
-    } catch (error) {
-      console.error(error);
-    }
+    try { setOrganizations(await getOrganizations() || []); } catch { /* ignore */ }
   }, []);
 
   const loadContacts = useCallback(async () => {
     try {
-      const data = await getContacts({
-        q: searchTerm,
-        organization_id: filters.organization_id,
-        status: filters.status,
-      });
+      const data = await getContacts({ q: searchTerm, organization_id: filters.organization_id, status: filters.status });
+      setContacts(data.map((c: any) => ({ id: c.id, name: c.name, email: c.email || "", phone: c.phone_number, organization_id: c.organization_id ?? null, organization: c.organization_name || "—", status: c.status || "Active", created_at: c.created_at })));
+    } catch { /* ignore */ }
+  }, [filters, searchTerm]);
 
-      const formattedContacts = data.map((contact: any) => ({
-        id: contact.id,
-        name: contact.name,
-        email: contact.email || "",
-        phone: contact.phone_number,
-        organization_id: contact.organization_id ?? null,
-        organization: contact.organization_name || "-",
-        status: contact.status || "Active",
-        created_at: contact.created_at,
-      }));
+  useEffect(() => { loadOrganizations(); }, [loadOrganizations]);
+  useEffect(() => { const t = setTimeout(loadContacts, 200); return () => clearTimeout(t); }, [loadContacts]);
 
-      setContacts(formattedContacts);
-    } catch (error) {
-      console.error(error);
-    }
-  }, [filters.organization_id, filters.status, searchTerm]);
+  const total = contacts.length;
+  const active = contacts.filter(c => (c.status || "").toLowerCase() === "active").length;
+  const thisMonth = contacts.filter(c => { try { const d = new Date(c.created_at), n = new Date(); return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear(); } catch { return false; } }).length;
 
-  useEffect(() => {
-    loadOrganizations();
-  }, [loadOrganizations]);
-
-  useEffect(() => {
-    loadContacts();
-  }, [loadContacts]);
-
-  // Derived stats
-  const totalContacts = contacts.length;
-  const activeContacts = contacts.filter((c) => (c.status || "").toLowerCase() === "active").length;
-  const contactsThisMonth = contacts.filter((c) => {
+  const handleSave = async () => {
+    if (!newContact.name || !newContact.phone) { alert("Name and Phone required"); return; }
     try {
-      if (!c.created_at) return false;
-      const d = new Date(c.created_at);
-      const now = new Date();
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    } catch (e) {
-      return false;
-    }
-  }).length;
-  // groups not implemented server-side; show dash if unknown
-  const groupsCount = "-";
-
-  const [newContact, setNewContact] = useState({
-    name: "",
-    phone: "",
-    email: "",
-    organization_id: "",
-    status: "Active",
-  });
-
-  const handleSaveContact = async () => {
-    if (!newContact.name || !newContact.phone) {
-      alert("Name and Phone are required");
-      return;
-    }
-    try {
-      if (editingIndex !== null) {
-        await updateContact(contacts[editingIndex].id, newContact);
-        setEditingIndex(null);
-      } else {
-        await createContact(newContact);
-      }
-
+      if (editingIndex !== null) { await updateContact(contacts[editingIndex].id, newContact); setEditingIndex(null); }
+      else { await createContact(newContact); }
       await loadContacts();
-    } catch (error) {
-      console.error(error);
-      alert(editingIndex !== null ? "Failed to update contact" : "Failed to create contact");
-      return;
-    }
-
-    setNewContact({
-      name: "",
-      phone: "",
-      email: "",
-      organization_id: "",
-      status: "Active",
-    });
-
-    setShowModal(false);
-  };
-  const handleDeleteContact = async (id: any) => {
-    try {
-      await deleteContactApi(id);
-
-      loadContacts();
-    } catch (error) {
-      console.error(error);
-
-      alert("Failed to delete contact");
-    }
-  };
-  const handleEditContact = (index: number) => {
-    setNewContact(contacts[index]);
-    setEditingIndex(index);
-    setShowModal(true);
+      setNewContact({ name: "", phone: "", email: "", organization_id: "", status: "Active" });
+      setShowModal(false);
+    } catch { alert("Failed to save contact"); }
   };
 
-  const handleViewContact = (contact: any) => {
-    setViewContact(contact);
+  const handleDelete = async (id: any) => {
+    try { await deleteContactApi(id); loadContacts(); } catch { alert("Failed to delete"); }
   };
 
-  const handleImportContacts = async (event: any) => {
-    const file = event.target.files[0];
+  const handleEdit = (index: number) => { setNewContact(contacts[index]); setEditingIndex(index); setShowModal(true); };
 
-    if (!file) return;
-
+  const handleImport = async (e: any) => {
+    const file = e.target.files[0]; if (!file) return;
     try {
       const result = await importContacts(file);
-
-      if (!result.success) {
-        alert(`Import failed: ${result.message || result.error || "Unknown error"}`);
-        return;
-      }
-
+      if (!result.success) { alert(`Import failed: ${result.message || result.error}`); return; }
       await loadContacts();
-    } catch (error) {
-      console.error(error);
-      alert("Failed to import contacts");
-    } finally {
-      event.target.value = null;
-    }
+    } catch { alert("Failed to import"); } finally { e.target.value = null; }
   };
+
   return (
-    <div className="p-8 bg-slate-100 min-h-screen">
+    <div className="min-h-screen p-6 space-y-6 animate-fade-up">
       {/* Header */}
-      <div className="flex flex-col gap-6 lg:flex-row lg:justify-between lg:items-center mb-8">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold">Contacts</h1>
-
-          <p className="text-gray-500 mt-2">Manage all WhatsApp contacts</p>
+          <h1 className="text-3xl font-bold text-white">Contacts</h1>
+          <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>Manage all WhatsApp contacts</p>
         </div>
-
-        <button
-          onClick={() => setShowModal(true)}
-          className="bg-[#25D366] text-white px-5 py-3 rounded-xl inline-flex items-center gap-3 shadow-lg hover:bg-[#22b85b] transition"
-        >
-          <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#25D366] shadow-sm">
-            <FaPlus className="text-xl" />
-          </span>
-          Add Contact
-        </button>
-      </div>
-
-      {/* Stats row */}
-      <div className="mb-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <StatCard icon={<FaUsers size={24} />} title="Total Contacts" value={totalContacts} delta="18.4% from last month" />
-          <StatCard icon={<FaCheckCircle size={24} />} title="Active Contacts" value={activeContacts} delta="16.7% from last month" />
-          <StatCard icon={<FaCalendarAlt size={24} />} title="Contacts This Month" value={contactsThisMonth} delta="12.1% from last month" />
-          <StatCard icon={<FaTags size={24} />} title="Groups" value={groupsCount} delta="8.3% from last month" />
+        <div className="flex items-center gap-3">
+          <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors"
+            style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.7)" }}>
+            <Upload size={15} /> Import
+          </button>
+          <button onClick={() => setShowModal(true)} className="btn-glow flex items-center gap-2 text-sm">
+            <Plus size={15} /> Add Contact
+          </button>
+          <input type="file" accept=".csv,.xlsx" ref={fileInputRef} onChange={handleImport} className="hidden" />
         </div>
       </div>
 
-      {/* White Card */}
-      <div className="bg-white rounded-[32px] shadow-sm p-6">
-        {/* Search + Filters */}
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-6">
-          <div className="flex-1 min-w-0">
-            <div className="relative">
-              <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search contacts by name, phone, email..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full rounded-full border border-slate-200 bg-slate-50 px-14 py-3 text-sm shadow-sm focus:border-slate-300 focus:ring-0"
-              />
-            </div>
+      {/* Stats */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard icon={Users} title="Total Contacts" value={total} delta="18.4% this month" color="#7c3aed" />
+        <StatCard icon={CheckCircle} title="Active" value={active} delta="16.7% this month" color="#10b981" />
+        <StatCard icon={CalendarDays} title="This Month" value={thisMonth} delta="12.1% this month" color="#06b6d4" />
+        <StatCard icon={Tag} title="Groups" value="—" color="#f59e0b" />
+      </div>
+
+      {/* Table card */}
+      <div className="rounded-2xl overflow-hidden" style={glass}>
+        {/* Toolbar */}
+        <div className="px-5 py-4 flex flex-wrap items-center gap-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.3)" }} />
+            <input type="text" placeholder="Search contacts…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+              className="pl-9 pr-4 py-2 text-sm rounded-xl w-full focus:outline-none placeholder:text-[rgba(255,255,255,0.2)]"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "white" }} />
           </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <select
-              value={filters.organization_id}
-              onChange={(e) => setFilters({ ...filters, organization_id: e.target.value })}
-              className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
-            >
-              <option value="all">All Organizations</option>
-              {organizations.map((org) => (
-                <option key={org.id} value={org.id}>{org.name}</option>
-              ))}
-            </select>
-
-            <select
-              value={filters.status}
-              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-              className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
-            >
-              <option value="all">All Statuses</option>
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-            </select>
-
-            <button
-              onClick={() => setFilters({ organization_id: "all", status: "all" })}
-              className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm"
-            >
-              Clear
-            </button>
-          </div>
-
-          <div className="flex gap-3">
-            <button className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
-              <FaFilter /> Filter
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-full bg-[#25D366] px-4 py-3 text-sm font-semibold text-white shadow-sm"
-            >
-              <FaPlus /> Import
-            </button>
-          </div>
-
-          <input
-            type="file"
-            accept=".csv,.xlsx"
-            ref={fileInputRef}
-            onChange={handleImportContacts}
-            className="hidden"
-          />
+          <select value={filters.organization_id} onChange={e => setFilters({ ...filters, organization_id: e.target.value })}
+            className="px-3 py-2 text-sm rounded-xl focus:outline-none"
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)" }}>
+            <option value="all">All Organizations</option>
+            {organizations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+          <select value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}
+            className="px-3 py-2 text-sm rounded-xl focus:outline-none"
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)" }}>
+            <option value="all">All Statuses</option>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+          <button onClick={() => setFilters({ organization_id: "all", status: "all" })}
+            className="px-3 py-2 text-sm rounded-xl transition-colors" style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.4)", border: "1px solid rgba(255,255,255,0.07)" }}>
+            Clear
+          </button>
         </div>
 
         {/* Table */}
         <div className="overflow-x-auto">
-          <div className="max-h-[520px] overflow-y-auto border-t border-slate-100">
-            <table className="w-full min-w-[960px] text-left table-fixed">
+          <table className="data-table">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-sm uppercase tracking-wider text-slate-500">
-                <th className="px-6 py-4">Contact Name</th>
-                <th className="px-6 py-4">Phone Number</th>
-                <th className="px-6 py-4">Organization</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Added On</th>
-                <th className="px-6 py-4">Actions</th>
+              <tr>
+                <th>Contact</th><th>Phone</th><th>Organization</th><th>Status</th><th>Added</th><th className="text-center">Actions</th>
               </tr>
             </thead>
-
             <tbody>
-              {contacts.map((contact, index) => (
-                <tr key={contact.id || index} className="border-b border-slate-100 hover:bg-slate-50 transition">
-                  <td className="px-6 py-5 align-top">
-                    <div className="flex items-center gap-4">
-                      <div className="h-12 w-12 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-semibold text-sm shadow-sm">
-                        {contact.name
-                          .split(" ")
-                          .map((part: string) => part[0])
-                          .slice(0, 2)
-                          .join("")}
+              {contacts.map((c, i) => (
+                <tr key={c.id}>
+                  <td>
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                        style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)" }}>
+                        {c.name.split(" ").map((p: string) => p[0]).slice(0, 2).join("")}
                       </div>
                       <div>
-                        <div className="font-semibold text-slate-900">{contact.name}</div>
-                        <div className="text-xs text-slate-400">{contact.email || ""}</div>
+                        <p className="text-white font-medium text-sm">{c.name}</p>
+                        <p className="text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>{c.email}</p>
                       </div>
                     </div>
                   </td>
-
-                  <td className="px-6 py-5 align-top text-slate-700">
-                    <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-sm text-slate-700">
-                      <FaWhatsapp className="text-green-600" />
-                      {contact.phone}
-                    </div>
-                  </td>
-
-                  <td className="px-6 py-5 align-top text-slate-700">
-                    {contact.organization || "-"}
-                  </td>
-
-                  <td className="px-6 py-5 align-top">
-                    <span className={
-                      contact.status === "Active"
-                        ? "inline-flex rounded-full bg-emerald-100 px-3 py-1 text-sm text-emerald-700"
-                        : "inline-flex rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-600"
-                    }>
-                      {contact.status}
+                  <td>
+                    <span className="flex items-center gap-1.5 text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>
+                      <Phone size={12} style={{ color: "#25d366" }} />{c.phone}
                     </span>
                   </td>
-
-                  <td className="px-6 py-5 align-top text-slate-700 text-sm">
-                    {contact.created_at ? new Date(contact.created_at).toLocaleDateString() : "-"}
+                  <td>{c.organization}</td>
+                  <td>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold"
+                      style={{ background: c.status === "Active" ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.07)", color: c.status === "Active" ? "#10b981" : "rgba(255,255,255,0.45)" }}>
+                      <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: c.status === "Active" ? "#10b981" : "rgba(255,255,255,0.3)" }} />
+                      {c.status}
+                    </span>
                   </td>
-
-                  <td className="px-6 py-5 align-top">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleViewContact(contact)}
-                        className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-slate-100 text-slate-600 transition hover:bg-slate-200"
-                      >
-                        <FaEye className="text-lg" />
-                      </button>
-                      <button
-                        onClick={() => handleEditContact(index)}
-                        className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-slate-100 text-slate-600 transition hover:bg-slate-200"
-                      >
-                        <FaEdit className="text-lg" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteContact(contact.id)}
-                        className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-slate-100 text-rose-500 transition hover:bg-rose-100"
-                      >
-                        <FaTrash className="text-lg" />
-                      </button>
+                  <td>{c.created_at ? new Date(c.created_at).toLocaleDateString() : "—"}</td>
+                  <td>
+                    <div className="flex items-center justify-center gap-2">
+                      {[{ Icon: Eye, fn: () => setViewContact(c), color: "#06b6d4" }, { Icon: Edit2, fn: () => handleEdit(i), color: "#a78bfa" }, { Icon: Trash2, fn: () => handleDelete(c.id), color: "#f43f5e" }].map(({ Icon, fn, color }, k) => (
+                        <button key={k} onClick={fn} className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
+                          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.07)" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = color + "22")}
+                          onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
+                          <Icon size={13} style={{ color }} />
+                        </button>
+                      ))}
                     </div>
                   </td>
                 </tr>
               ))}
+              {contacts.length === 0 && (
+                <tr><td colSpan={6} className="text-center py-12" style={{ color: "rgba(255,255,255,0.25)" }}>No contacts found</td></tr>
+              )}
             </tbody>
-            </table>
-          </div>
+          </table>
         </div>
       </div>
+
+      {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 w-[550px] border border-gray-100">
-            <h2 className="text-3xl font-bold text-[#075E54] mb-6">
-              Add Contact
-            </h2>
-            <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="Full Name"
-                value={newContact.name}
-                onChange={(e) =>
-                  setNewContact({
-                    ...newContact,
-                    name: e.target.value,
-                  })
-                }
-                className="w-full border border-gray-300 rounded-lg px-4 py-3"
-              />
-
-              <input
-                type="text"
-                placeholder="Phone Number"
-                value={newContact.phone}
-                onChange={(e) =>
-                  setNewContact({
-                    ...newContact,
-                    phone: e.target.value,
-                  })
-                }
-                className="w-full border border-gray-300 rounded-lg px-4 py-3"
-              />
-
-              <select
-                value={newContact.organization_id}
-                onChange={(e) =>
-                  setNewContact({
-                    ...newContact,
-                    organization_id: e.target.value,
-                  })
-                }
-                className="w-full border border-gray-300 rounded-lg px-4 py-3"
-              >
-                <option value="">Select Organization</option>
-                {organizations.map((org) => (
-                  <option key={org.id} value={org.id}>{org.name}</option>
-                ))}
-              </select>
-
-              <input
-                type="email"
-                placeholder="Email address"
-                value={newContact.email}
-                onChange={(e) =>
-                  setNewContact({
-                    ...newContact,
-                    email: e.target.value,
-                  })
-                }
-                className="w-full border border-gray-300 rounded-lg px-4 py-3"
-              />
-
-              <select
-                value={newContact.status}
-                onChange={(e) =>
-                  setNewContact({
-                    ...newContact,
-                    status: e.target.value,
-                  })
-                }
-                className="w-full border border-gray-300 rounded-lg px-4 py-3"
-              >
-                <option>Active</option>
-                <option>Inactive</option>
-              </select>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}>
+          <div className="w-full max-w-md rounded-2xl p-6 space-y-4" style={{ background: "#13162b", border: "1px solid rgba(255,255,255,0.1)" }}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-white">{editingIndex !== null ? "Edit Contact" : "Add Contact"}</h2>
+              <button onClick={() => setShowModal(false)} style={{ color: "rgba(255,255,255,0.4)" }}><X size={18} /></button>
             </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => setShowModal(false)}
-                className="border border-gray-300 px-5 py-2 rounded-lg"
-              >
-                Cancel
-              </button>
-
-              <button
-                onClick={handleSaveContact}
-                className="bg-[#25D366] hover:bg-[#1ebe5d] text-white px-5 py-2 rounded-lg font-medium transition"
-              >
-                Save
-              </button>
+            {[{ ph: "Full Name", key: "name", type: "text" }, { ph: "919876543210  (no + or spaces)", key: "phone", type: "text" }, { ph: "Email Address", key: "email", type: "email" }].map(({ ph, key, type }) => (
+              <input key={key} type={type} placeholder={ph} value={(newContact as any)[key]}
+                onChange={e => setNewContact({ ...newContact, [key]: e.target.value })}
+                className="placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none"
+                style={inputStyle} />
+            ))}
+            <select value={newContact.organization_id} onChange={e => setNewContact({ ...newContact, organization_id: e.target.value })}
+              className="focus:outline-none" style={inputStyle}>
+              <option value="">Select Organization</option>
+              {organizations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+            <select value={newContact.status} onChange={e => setNewContact({ ...newContact, status: e.target.value })}
+              className="focus:outline-none" style={inputStyle}>
+              <option>Active</option><option>Inactive</option>
+            </select>
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setShowModal(false)} className="px-4 py-2.5 rounded-xl text-sm"
+                style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.08)" }}>Cancel</button>
+              <button onClick={handleSave} className="btn-glow text-sm px-5 py-2.5">Save</button>
             </div>
           </div>
         </div>
       )}
+
+      {/* View Modal */}
       {viewContact && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-          <div className="bg-white rounded-2xl p-8 w-[500px]">
-            <h2 className="text-2xl font-bold mb-6">Contact Details</h2>
-
-            <div className="space-y-4">
-              <p>
-                <strong>Name:</strong> {viewContact.name}
-              </p>
-
-              <p>
-                <strong>Phone:</strong> {viewContact.phone}
-              </p>
-
-              <p>
-                <strong>Organization:</strong> {viewContact.organization || "-"}
-              </p>
-
-              <p>
-                <strong>Status:</strong> {viewContact.status}
-              </p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}>
+          <div className="w-full max-w-sm rounded-2xl p-6" style={{ background: "#13162b", border: "1px solid rgba(255,255,255,0.1)" }}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-xl font-semibold text-white">Contact Details</h2>
+              <button onClick={() => setViewContact(null)} style={{ color: "rgba(255,255,255,0.4)" }}><X size={18} /></button>
             </div>
-
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={() => setViewContact(null)}
-                className="bg-gray-500 text-white px-5 py-2 rounded-lg"
-              >
-                Close
-              </button>
+            <div className="space-y-3">
+              {[["Name", viewContact.name], ["Phone", viewContact.phone], ["Email", viewContact.email || "—"], ["Organization", viewContact.organization], ["Status", viewContact.status]].map(([k, v]) => (
+                <div key={k} className="flex justify-between py-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  <span className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>{k}</span>
+                  <span className="text-sm font-medium text-white">{v}</span>
+                </div>
+              ))}
             </div>
+            <button onClick={() => setViewContact(null)} className="mt-5 w-full py-2.5 rounded-xl text-sm"
+              style={{ background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.08)" }}>Close</button>
           </div>
         </div>
       )}

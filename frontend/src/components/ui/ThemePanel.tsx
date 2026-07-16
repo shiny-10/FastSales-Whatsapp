@@ -17,11 +17,11 @@ const MODES: { value: ThemeMode; label: string; icon: React.ReactNode }[] = [
 ];
 
 const ACCENTS: { value: AccentColor; color: string; label: string }[] = [
-  { value: "green",  color: "#00a884", label: "WhatsApp" },
-  { value: "purple", color: "#7c3aed", label: "Purple"   },
+  { value: "green",  color: "#22c55e", label: "Green"   },
+  { value: "purple", color: "#8b5cf6", label: "Violet"   },
   { value: "blue",   color: "#2563eb", label: "Blue"     },
-  { value: "pink",   color: "#db2777", label: "Pink"     },
-  { value: "orange", color: "#ea580c", label: "Orange"   },
+  { value: "pink",   color: "#ec4899", label: "Magenta"  },
+  { value: "orange", color: "#fb923c", label: "Amber"   },
 ];
 
 const WALLPAPERS: { value: Wallpaper; label: string; preview: string }[] = [
@@ -31,8 +31,8 @@ const WALLPAPERS: { value: Wallpaper; label: string; preview: string }[] = [
   { value: "waves",         label: "Waves",        preview: "bg-[#e3f2fd]" },
   { value: "solid-light",   label: "Light",        preview: "bg-[#f5f5f5]" },
   { value: "solid-dark",    label: "Dark",         preview: "bg-[#2c2c2c]" },
-  { value: "gradient-blue", label: "Blue Grad",    preview: "bg-gradient-to-br from-blue-100 to-purple-100" },
-  { value: "gradient-pink", label: "Pink Grad",    preview: "bg-gradient-to-br from-pink-100 to-yellow-100" },
+  { value: "gradient-blue", label: "Blue Grad",    preview: "bg-blue-100" },
+  { value: "gradient-pink", label: "Pink Grad",    preview: "bg-pink-100" },
   { value: "none",          label: "None",         preview: "bg-background border border-border" },
 ];
 
@@ -58,7 +58,8 @@ export function ThemePanel({ open, onClose }: ThemePanelProps) {
             className="fixed left-16 lg:left-56 top-0 h-screen w-80 z-50 bg-white dark:bg-[#111b21] border-r border-border shadow-2xl flex flex-col"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-[#f0f2f5] dark:bg-[#202c33]">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border"
+                style={{ background: 'var(--popover)' }}>
               <h2 className="font-semibold text-base">Appearance</h2>
               <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
                 <X className="h-5 w-5" />
@@ -79,8 +80,8 @@ export function ThemePanel({ open, onClose }: ThemePanelProps) {
                       className={cn(
                         "flex flex-col items-center gap-1.5 rounded-xl border-2 py-3 text-xs font-medium transition-all",
                         mode === value
-                          ? "border-[var(--wa-accent)] bg-[var(--wa-accent)]/10 text-[var(--wa-accent)]"
-                          : "border-border hover:border-[var(--wa-accent)]/50 text-muted-foreground"
+                          ? "border-(--wa-accent) bg-(--wa-accent)/10 text-(--wa-accent)"
+                          : "border-border hover:border-(--wa-accent)/50 text-muted-foreground"
                       )}
                     >
                       {icon}
@@ -125,8 +126,8 @@ export function ThemePanel({ open, onClose }: ThemePanelProps) {
                       className={cn(
                         "flex flex-col items-center gap-1.5 rounded-xl border-2 overflow-hidden transition-all",
                         wallpaper === value
-                          ? "border-[var(--wa-accent)]"
-                          : "border-border hover:border-[var(--wa-accent)]/50"
+                          ? "border-(--wa-accent)"
+                          : "border-border hover:border-(--wa-accent)/50"
                       )}
                     >
                       <div className={cn("w-full h-12", preview)} />
@@ -148,8 +149,8 @@ export function ThemePanel({ open, onClose }: ThemePanelProps) {
                       className={cn(
                         "flex flex-col items-center gap-1 rounded-xl border-2 py-3 transition-all",
                         fontSize === value
-                          ? "border-[var(--wa-accent)] bg-[var(--wa-accent)]/10 text-[var(--wa-accent)]"
-                          : "border-border hover:border-[var(--wa-accent)]/50 text-muted-foreground"
+                          ? "border-(--wa-accent) bg-(--wa-accent)/10 text-(--wa-accent)"
+                          : "border-border hover:border-(--wa-accent)/50 text-muted-foreground"
                       )}
                     >
                       <span className={cn("font-semibold", size)}>Aa</span>
@@ -159,11 +160,11 @@ export function ThemePanel({ open, onClose }: ThemePanelProps) {
                 </div>
 
                 {/* Live preview */}
-                <div className="mt-3 rounded-xl bg-[#d9fdd3] dark:bg-[#005c4b] px-3 py-2 shadow-sm">
-                  <p style={{ fontSize: "var(--wa-msg-font)" }} className="text-gray-800 dark:text-gray-100 leading-relaxed">
+                <div className="mt-3 rounded-xl px-3 py-2 shadow-sm" style={{ background: 'var(--accent)', color: 'var(--accent-foreground)' }}>
+                  <p style={{ fontSize: "var(--wa-msg-font)" }} className="leading-relaxed">
                     Preview message text 👋
                   </p>
-                  <p className="text-[10px] text-gray-400 text-right mt-0.5">12:34</p>
+                  <p className="text-[10px] text-[rgba(255,255,255,0.85)] text-right mt-0.5">12:34</p>
                 </div>
               </section>
 

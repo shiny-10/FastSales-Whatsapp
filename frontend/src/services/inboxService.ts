@@ -40,10 +40,12 @@ export async function createConversation(payload: Record<string, unknown>) {
   return res.json();
 }
 
-export default {
+const inboxService = {
   listConversations,
   getConversation,
   listMessages,
   sendMessage,
   createConversation,
 };
+
+export default inboxService;

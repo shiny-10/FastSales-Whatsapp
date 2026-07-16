@@ -60,7 +60,7 @@ export async function deleteChatbotRule(id: string | number) {
   return res.json();
 }
 
-export default {
+const settingsService = {
   getAutoReplies,
   createAutoReply,
   updateAutoReply,
@@ -70,3 +70,5 @@ export default {
   updateChatbotRule,
   deleteChatbotRule,
 };
+
+export default settingsService;

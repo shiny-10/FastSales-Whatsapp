@@ -6,16 +6,18 @@ from services.meta_service import MetaWhatsAppService
 
 from datetime import datetime
 
-meta_service = MetaWhatsAppService(
-    settings.ACCESS_TOKEN,
-    settings.PHONE_NUMBER_ID
-)
+def _get_meta_service() -> MetaWhatsAppService:
+    return MetaWhatsAppService(
+        settings.ACCESS_TOKEN,
+        settings.PHONE_NUMBER_ID
+    )
 
 def process_scheduled_campaigns():
 
     print("Scheduler Tick:", datetime.now())
 
     db = SessionLocal()
+    meta_service = _get_meta_service()
 
     try:
 

@@ -3,13 +3,8 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from services.whatsapp_service import WhatsAppRepository
-from services.conversation_service import ConversationRepository
-from services.message_service import MessageRepository
-from services.conversation_service import ConversationService
-from services.reaction_service import ReactionService
-from services.media_service import MediaService
-from services.messaging_features_service import AutoReplyService, ChatbotRuleService
+# Only import models/schemas at module level — no service imports here
+# All service imports are deferred inside __init__ to break circular chains
 from models.postgres_model import WhatsAppInboxMessage
 from schemas.whatsapp_inbox import MessageResponse, ReactionResponse, SendTextMessageRequest
 import services.socket_service as socket_svc
@@ -38,6 +33,15 @@ TYPE_MAP = {
 class WebhookService:
     def __init__(self, db: Session):
         self.db = db
+        # All service imports are lazy to prevent circular import errors.
+        # Python caches modules after first load so there is no performance cost.
+        from services.whatsapp_service import WhatsAppRepository
+        from services.conversation_service import ConversationRepository, ConversationService
+        from services.message_service import MessageRepository
+        from services.reaction_service import ReactionService
+        from services.media_service import MediaService
+        from services.messaging_features_service import AutoReplyService, ChatbotRuleService
+
         self.wa_repo = WhatsAppRepository(db)
         self.conv_repo = ConversationRepository(db)
         self.msg_repo = MessageRepository(db)
@@ -76,6 +80,7 @@ class WebhookService:
             wa_account = self.wa_repo.get_by_phone_number_id(normalized_phone_number_id)
 
         if not wa_account:
+            from core.config import settings as config
             configured_phone_number_id = getattr(config, "META_WHATSAPP_PHONE_NUMBER_ID", "") or ""
             if configured_phone_number_id and str(configured_phone_number_id) != normalized_phone_number_id:
                 wa_account = self.wa_repo.get_by_phone_number_id(str(configured_phone_number_id))
@@ -190,6 +195,7 @@ class WebhookService:
 
     def _try_auto_respond(self, text: str, conversation, organization_id: int, wa_account) -> None:
         from services.message_service import MessageService
+        from services.messaging_features_service import AutoReplyService, ChatbotRuleService
         try:
             chatbot_svc = ChatbotRuleService(self.db)
             rules = chatbot_svc.get_active(organization_id)

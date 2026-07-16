@@ -9,125 +9,188 @@ import {
   useCallback,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { io, Socket } from "socket.io-client";
-import { useAuthStore } from "@/store/auth-store";
 import { useInboxStore } from "@/store/inbox-store";
 import type { Message, Reaction } from "./types";
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:8000";
+// Build the WebSocket base URL from the API URL env var.
+// http://localhost:8000  →  ws://localhost:8000
+// https://example.com   →  wss://example.com
+function buildWsBase(): string {
+  const raw = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:8000";
+  return raw
+    .replace(/^https:\/\//, "wss://")
+    .replace(/^http:\/\//, "ws://")
+    .replace(/\/$/, "");
+}
+
+const WS_BASE = buildWsBase();
+const ORG_ID = "1"; // hardcoded until auth is wired
+
+const MIN_RETRY_MS = 2_000;
+const MAX_RETRY_MS = 30_000;
 
 interface SocketContextValue {
-  socket: Socket | null;
   connected: boolean;
   emitTyping: (conversationId: string) => void;
   joinConversation: (conversationId: string) => void;
 }
 
 const SocketContext = createContext<SocketContextValue>({
-  socket: null,
   connected: false,
   emitTyping: () => {},
   joinConversation: () => {},
 });
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const socketRef = useRef<Socket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryDelay = useRef(MIN_RETRY_MS);
+  const unmounted = useRef(false);
+
   const [connected, setConnected] = useState(false);
-  const { user } = useAuthStore();
   const queryClient = useQueryClient();
-  const { addMessage, updateConversation, upsertConversation, updateMessageStatus, addReaction, setTyping } = useInboxStore();
+  const { addMessage, updateMessageStatus, addReaction, setTyping } = useInboxStore();
 
-  useEffect(() => {
-    if (!user) return;
+  const connect = useCallback(() => {
+    if (unmounted.current) return;
 
-    const socket = io(SOCKET_URL, {
-      path: "/socket.io",
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
-    });
+    // Don't open a second socket if one is already open/connecting
+    if (
+      wsRef.current &&
+      (wsRef.current.readyState === WebSocket.OPEN ||
+        wsRef.current.readyState === WebSocket.CONNECTING)
+    ) {
+      return;
+    }
 
-    socketRef.current = socket;
+    const url = `${WS_BASE}/ws/${ORG_ID}`;
+    console.log(`[WS] Connecting → ${url}`);
 
-    socket.on("connect", () => {
-      console.log("✅ Socket connected");
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url);
+    } catch (err) {
+      console.warn("[WS] Could not create WebSocket:", err);
+      scheduleRetry();
+      return;
+    }
+
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log("[WS] ✅ Connected");
       setConnected(true);
-      // Join company room
-      socket.emit("join_company", { company_id: user.company_id });
-      console.log("📍 Joined company room:", user.company_id);
-    });
+      retryDelay.current = MIN_RETRY_MS; // reset backoff
+    };
 
-    socket.on("disconnect", () => {
-      console.log("❌ Socket disconnected");
+    ws.onclose = (ev) => {
+      console.log(`[WS] ❌ Closed (code=${ev.code})`);
       setConnected(false);
-    });
+      wsRef.current = null;
+      scheduleRetry();
+    };
 
-    socket.on("NEW_MESSAGE", (message: Message) => {
-      console.log("🆕 NEW_MESSAGE received from socket:", message);
-      addMessage(message);
-      // Force refetch conversations immediately
-      queryClient.refetchQueries({ queryKey: ["conversations"] });
-      queryClient.refetchQueries({ queryKey: ["messages", message.conversation_id] });
-      console.log("🔄 Refetching conversations and messages");
-    });
+    ws.onerror = () => {
+      // onerror fires before onclose — just log, onclose handles retry
+      console.warn(`[WS] Error on ${url} — will retry in ${retryDelay.current / 1000}s`);
+    };
 
-    socket.on(
-      "MESSAGE_STATUS",
-      (data: {
-        message_id?: string;
-        meta_message_id?: string;
-        status: string;
-        conversation_id: string;
-      }) => {
-        updateMessageStatus(data.meta_message_id ?? data.message_id ?? "", data.status as any);
-        queryClient.setQueryData(["messages", data.conversation_id], (oldData: any) => {
-          if (!oldData || !oldData.pages) return oldData;
+    ws.onmessage = (event) => {
+      let data: Record<string, any>;
+      try {
+        data = JSON.parse(event.data as string);
+      } catch {
+        return;
+      }
+
+      const type = ((data.type as string) || "").toLowerCase();
+
+      if (type === "new_message") {
+        const raw = data.message as Message;
+        if (!raw) return;
+        const message: Message = {
+          ...raw,
+          reactions: raw.reactions ?? [],
+          media_files: raw.media_files ?? [],
+        };
+        addMessage(message);
+        queryClient.refetchQueries({ queryKey: ["conversations"] });
+        queryClient.refetchQueries({ queryKey: ["messages", String(message.conversation_id)] });
+        return;
+      }
+
+      if (type === "message_status") {
+        const convId = String(data.conversation_id ?? "");
+        const ref: string = data.meta_message_id ?? data.message_id ?? "";
+        updateMessageStatus(ref, data.status as any);
+        queryClient.setQueryData(["messages", convId], (old: any) => {
+          if (!old?.pages) return old;
           return {
-            ...oldData,
-            pages: oldData.pages.map((page: any) => ({
+            ...old,
+            pages: old.pages.map((page: any) => ({
               ...page,
-              items: page.items.map((message: Message) =>
-                message.meta_message_id === data.meta_message_id || message.id === data.message_id
-                  ? { ...message, status: data.status as any }
-                  : message
+              items: page.items.map((m: Message) =>
+                m.meta_message_id === data.meta_message_id ||
+                String(m.id) === String(data.message_id)
+                  ? { ...m, status: data.status }
+                  : m
               ),
             })),
           };
         });
+        return;
       }
-    );
 
-    socket.on("NEW_REACTION", (reaction: Reaction) => {
-      addReaction(reaction);
-      queryClient.invalidateQueries({ queryKey: ["messages"] });
-    });
+      if (type === "new_reaction") {
+        const reaction = data.reaction as Reaction;
+        if (reaction) {
+          addReaction(reaction);
+          queryClient.invalidateQueries({ queryKey: ["messages"] });
+        }
+        return;
+      }
 
-    socket.on("AGENT_ASSIGNED", (data: { conversation_id: string; agent_id: string }) => {
-      // Could refresh conversations or update store
-    });
-
-    socket.on("TYPING", (data: { conversation_id: string; from?: string }) => {
-      setTyping(data.conversation_id, true);
-      // Auto-clear typing indicator after 3 seconds
-      setTimeout(() => setTyping(data.conversation_id, false), 3000);
-    });
-
-    return () => {
-      socket.disconnect();
+      if (type === "typing") {
+        const convId = String(data.conversation_id ?? "");
+        setTyping(convId, true);
+        setTimeout(() => setTyping(convId, false), 3000);
+        return;
+      }
     };
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function scheduleRetry() {
+    if (unmounted.current) return;
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = setTimeout(() => {
+      // Exponential backoff, capped at MAX_RETRY_MS
+      retryDelay.current = Math.min(retryDelay.current * 1.5, MAX_RETRY_MS);
+      connect();
+    }, retryDelay.current);
+  }
+
+  useEffect(() => {
+    unmounted.current = false;
+    connect();
+    return () => {
+      unmounted.current = true;
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      wsRef.current?.close(1000, "component unmount");
+      wsRef.current = null;
+    };
+  }, [connect]);
 
   const emitTyping = useCallback((conversationId: string) => {
-    socketRef.current?.emit("typing", { conversation_id: conversationId });
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "typing", conversation_id: conversationId }));
+    }
   }, []);
 
-  const joinConversation = useCallback((conversationId: string) => {
-    socketRef.current?.emit("join_conversation", { conversation_id: conversationId });
-  }, []);
+  const joinConversation = useCallback((_id: string) => {}, []);
 
   return (
-    <SocketContext.Provider value={{ socket: socketRef.current, connected, emitTyping, joinConversation }}>
+    <SocketContext.Provider value={{ connected, emitTyping, joinConversation }}>
       {children}
     </SocketContext.Provider>
   );

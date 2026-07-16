@@ -29,7 +29,7 @@ export function CannedResponses({ query, onSelect, onClose }: CannedResponsesPro
     staleTime: 10_000,
   });
 
-  useEffect(() => { setActiveIdx(0); }, [data]);
+  useEffect(() => { const t = setTimeout(() => setActiveIdx(0), 0); return () => clearTimeout(t); }, [data]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

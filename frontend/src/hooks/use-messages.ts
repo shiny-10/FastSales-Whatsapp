@@ -38,21 +38,17 @@ export function useSendTextMessage() {
       content: string;
       reply_to_message_id?: string;
     }) => {
-      console.log("useSendTextMessage.mutationFn", {
+      const { data } = await api.post("/inbox/messages", {
         conversation_id,
+        message_type: "TEXT",
         content,
-        reply_to_message_id,
+        reply_to_message_id: reply_to_message_id ?? null,
       });
-      const { data } = await api.post("/api/messages/send/text", {
-        conversation_id,
-        content,
-        reply_to_message_id,
-      });
-      console.log("useSendTextMessage.response", data);
       return data as Message;
     },
     onSuccess: (_, variables) => {
       qc.invalidateQueries({ queryKey: ["messages", variables.conversation_id] });
+      qc.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
 }
@@ -68,7 +64,7 @@ export function useSendMediaMessage() {
       caption?: string;
       file_name?: string;
     }) => {
-      const { data } = await api.post("/api/messages/send/media", payload);
+      const { data } = await api.post("/inbox/messages", payload);
       return data as Message;
     },
     onSuccess: (_, variables) => {
@@ -86,11 +82,45 @@ export function useSendTemplateMessage() {
       language_code?: string;
       components?: any[];
     }) => {
-      const { data } = await api.post("/api/messages/send/template", payload);
+      const { data } = await api.post("/inbox/messages", {
+        conversation_id: payload.conversation_id,
+        message_type: "TEMPLATE",
+        template_name: payload.template_name,
+        language_code: payload.language_code,
+        components: payload.components,
+      });
       return data as Message;
     },
     onSuccess: (_, variables) => {
       qc.invalidateQueries({ queryKey: ["messages", variables.conversation_id] });
+    },
+  });
+}
+
+export function useDeleteMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (messageId: string) => {
+      await api.delete(`/inbox/messages/${messageId}`);
+      return messageId;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["messages"] });
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+    },
+  });
+}
+
+export function useDeleteMessages() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      await api.delete("/inbox/messages", { data: { ids } });
+      return ids;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["messages"] });
+      qc.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
 }
