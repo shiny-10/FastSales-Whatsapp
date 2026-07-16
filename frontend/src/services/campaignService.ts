@@ -72,7 +72,7 @@ export const listCampaigns = async () => {
   }
 };
 
-export const runCampaign = async (campaignId: string | number, templateName: string) => {
+export const runCampaign = async (campaignId: string | number) => {
   const response = await fetch(`${API_URL}/run-campaign`, {
     method: "POST",
     headers: {
@@ -80,7 +80,6 @@ export const runCampaign = async (campaignId: string | number, templateName: str
     },
     body: JSON.stringify({
       campaign_id: campaignId,
-      template_name: templateName,
     }),
   });
 

@@ -39,9 +39,10 @@ const ACCEPT_MAP: Record<MediaCategory, string> = {
 interface ChatWindowProps {
   conversationId: string;
   onBack?: () => void;
+  onContactClick?: () => void;
 }
 
-export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
+export function ChatWindow({ conversationId, onBack, onContactClick }: ChatWindowProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [text, setText] = useState("");
@@ -305,7 +306,14 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
             <ArrowLeft className="h-4 w-4" />
           </button>
         )}
-        <ContactAvatar name={conversation.customer_name} phone={conversation.customer_phone} className="h-10 w-10 shrink-0" />
+        <button
+          type="button"
+          onClick={onContactClick}
+          className="shrink-0 rounded-full focus:outline-none"
+          title="View contact info"
+        >
+          <ContactAvatar name={conversation.customer_name} phone={conversation.customer_phone} className="h-10 w-10" />
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 group">
             {editingName ? (
@@ -322,9 +330,10 @@ export function ChatWindow({ conversationId, onBack }: ChatWindowProps) {
             ) : (
               <>
                 <span
-                  className="font-semibold text-[14px] cursor-pointer"
+                  className="font-semibold text-[14px] cursor-pointer hover:underline"
                   style={{ color: "#1a1d23" }}
-                  onClick={() => { setNameValue(conversation.customer_name ?? ""); setEditingName(true); }}
+                  onClick={onContactClick}
+                  title="View contact info"
                 >
                   {conversation.customer_name || conversation.customer_phone}
                 </span>

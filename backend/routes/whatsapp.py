@@ -26,18 +26,33 @@ meta_service = MetaWhatsAppService(
     meta_phone_number_id,
 )
 
+def _get_meta_service() -> MetaWhatsAppService:
+    """Always read fresh credentials from settings (picks up .env changes after restart)."""
+    token = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN
+    phone_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID
+    return MetaWhatsAppService(token, phone_id)
+
 @router.post("/send")
 def send_message(data: MessageRequest, request: Request):
     db = SessionLocal()
-    if not meta_access_token or not meta_phone_number_id:
+    svc = _get_meta_service()
+    if not svc.access_token or not svc.phone_number_id:
         return {
             "success": False,
             "error": "WhatsApp send credentials are not configured. Set META_ACCESS_TOKEN and META_WHATSAPP_PHONE_NUMBER_ID.",
         }
     try:
-        result = meta_service.send_template_message(
+        # Look up template language from DB — fall back to "en_US" if not found
+        from models.postgres_model import Template
+        tmpl = db.query(Template).filter(
+            Template.template_name == data.template_name
+        ).first()
+        language_code = (tmpl.language or "en_US") if tmpl else "en_US"
+
+        result = svc.send_template_message(
             data.to,
             data.template_name,
+            language_code=language_code,
         )
 
         if isinstance(result, dict) and result.get("success") is False:
@@ -71,7 +86,7 @@ def send_message(data: MessageRequest, request: Request):
         contact = db.query(Contact).filter(Contact.phone_number == data.to).first()
         contact_id = contact.id if contact else None
 
-        # Find or create conversation
+        # Find or create OLD conversation (legacy system)
         conv = None
         if contact_id:
             conv = db.query(Conversation).filter(Conversation.contact_id == contact_id).first()
@@ -93,7 +108,7 @@ def send_message(data: MessageRequest, request: Request):
             conv.last_message_at = datetime.utcnow()
             db.commit()
 
-        # Add conversation message
+        # Add conversation message (legacy)
         conv_msg = ConversationMessage(
             conversation_id=conv.id,
             message_log_id=msg_log.id,
@@ -106,17 +121,55 @@ def send_message(data: MessageRequest, request: Request):
         db.commit()
         db.refresh(conv_msg)
 
+        # ── Inbox system: get-or-create WhatsAppInboxConversation ──────────────
+        from models.postgres_model import WhatsAppInboxConversation, WhatsAppInboxMessage as InboxMessage
+        inbox_conv = db.query(WhatsAppInboxConversation).filter(
+            WhatsAppInboxConversation.customer_phone == data.to,
+            WhatsAppInboxConversation.organization_id == org_id,
+        ).first()
+        if not inbox_conv:
+            inbox_conv = WhatsAppInboxConversation(
+                organization_id=org_id,
+                customer_phone=data.to,
+                customer_name=(contact.name if contact else None),
+                status="OPEN",
+                is_archived=False,
+                unread_count=0,
+                last_message_at=datetime.utcnow(),
+            )
+            db.add(inbox_conv)
+            db.commit()
+            db.refresh(inbox_conv)
+        else:
+            inbox_conv.last_message_at = datetime.utcnow()
+            db.commit()
+
+        # Save template message in inbox messages
+        meta_msg_id = result.get("messages", [{}])[0].get("id") if isinstance(result, dict) else None
+        inbox_msg = InboxMessage(
+            conversation_id=inbox_conv.id,
+            meta_message_id=meta_msg_id,
+            sender_type="AGENT",
+            sender_id=1,
+            message_type="TEMPLATE",
+            content=data.template_name,
+            status="SENT",
+        )
+        db.add(inbox_msg)
+        db.commit()
+        db.refresh(inbox_msg)
+
         # Broadcast new message to org clients
         try:
             loop = asyncio.get_event_loop()
             loop.create_task(manager.broadcast_to_org(str(org_id), {
                 "type": "new_message",
-                "conversation_id": conv.id,
+                "conversation_id": inbox_conv.id,
                 "message": {
-                    "id": conv_msg.id,
-                    "text": conv_msg.text,
-                    "direction": conv_msg.direction,
-                    "created_at": conv_msg.created_at.isoformat() + "Z" if conv_msg.created_at else None,
+                    "id": inbox_msg.id,
+                    "content": inbox_msg.content,
+                    "sender_type": inbox_msg.sender_type,
+                    "created_at": inbox_msg.created_at.isoformat() + "Z" if inbox_msg.created_at else None,
                 }
             }))
         except Exception:
@@ -125,8 +178,9 @@ def send_message(data: MessageRequest, request: Request):
         return {
             "success": True,
             "meta_response": result,
-            "conversation_id": conv.id,
-            "message_id": conv_msg.id,
+            "conversation_id": str(inbox_conv.id),
+            "inbox_conversation_id": str(inbox_conv.id),
+            "message_id": str(inbox_msg.id),
         }
     except Exception as e:
         db.rollback()
@@ -136,7 +190,8 @@ def send_message(data: MessageRequest, request: Request):
 
 @router.get("/info")
 def get_whatsapp_info():
-    result = meta_service.get_phone_number_info()
+    svc = _get_meta_service()
+    result = svc.get_phone_number_info()
     if result.get("success") is False:
         return {
             "success": False,
@@ -178,7 +233,7 @@ def get_whatsapp_settings():
 
 def _build_settings():
     # Aggregate WhatsApp configuration and stats for frontend settings view
-    result = meta_service.get_phone_number_info()
+    result = _get_meta_service().get_phone_number_info()
 
     # compute message usage in last 24 hours
     from core.database import SessionLocal

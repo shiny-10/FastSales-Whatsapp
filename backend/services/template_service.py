@@ -2,6 +2,158 @@ from __future__ import annotations
 from core.config import settings
 import requests
 
+# Map human-readable language names / common codes → Meta-accepted locale codes
+# Full list: https://developers.facebook.com/docs/whatsapp/business-management-api/message-templates/supported-languages
+_LANGUAGE_MAP: dict[str, str] = {
+    # English variants
+    "english": "en_US",
+    "english (us)": "en_US",
+    "english (uk)": "en_GB",
+    "en": "en_US",
+    "en_us": "en_US",
+    "en_gb": "en_GB",
+    # Arabic
+    "arabic": "ar",
+    "ar": "ar",
+    # Spanish
+    "spanish": "es_ES",
+    "spanish (spain)": "es_ES",
+    "spanish (mexico)": "es_MX",
+    "es": "es_ES",
+    "es_es": "es_ES",
+    "es_mx": "es_MX",
+    # Portuguese
+    "portuguese": "pt_BR",
+    "portuguese (brazil)": "pt_BR",
+    "portuguese (portugal)": "pt_PT",
+    "pt": "pt_BR",
+    "pt_br": "pt_BR",
+    "pt_pt": "pt_PT",
+    # French
+    "french": "fr",
+    "fr": "fr",
+    # German
+    "german": "de",
+    "de": "de",
+    # Italian
+    "italian": "it",
+    "it": "it",
+    # Dutch
+    "dutch": "nl",
+    "nl": "nl",
+    # Turkish
+    "turkish": "tr",
+    "tr": "tr",
+    # Russian
+    "russian": "ru",
+    "ru": "ru",
+    # Indonesian
+    "indonesian": "id",
+    "id": "id",
+    # Hindi
+    "hindi": "hi",
+    "hi": "hi",
+    # Malay
+    "malay": "ms",
+    "ms": "ms",
+    # Chinese
+    "chinese (simplified)": "zh_CN",
+    "chinese (traditional)": "zh_TW",
+    "chinese": "zh_CN",
+    "zh": "zh_CN",
+    "zh_cn": "zh_CN",
+    "zh_tw": "zh_TW",
+    # Japanese
+    "japanese": "ja",
+    "ja": "ja",
+    # Korean
+    "korean": "ko",
+    "ko": "ko",
+    # Polish
+    "polish": "pl",
+    "pl": "pl",
+    # Ukrainian
+    "ukrainian": "uk",
+    "uk": "uk",
+    # Greek
+    "greek": "el",
+    "el": "el",
+    # Hebrew
+    "hebrew": "he",
+    "he": "he",
+    # Thai
+    "thai": "th",
+    "th": "th",
+    # Bengali
+    "bengali": "bn",
+    "bn": "bn",
+    # Tamil
+    "tamil": "ta",
+    "ta": "ta",
+    # Swahili
+    "swahili": "sw",
+    "sw": "sw",
+    # Afrikaans
+    "afrikaans": "af",
+    "af": "af",
+    # Catalan
+    "catalan": "ca",
+    "ca": "ca",
+    # Czech
+    "czech": "cs",
+    "cs": "cs",
+    # Danish
+    "danish": "da",
+    "da": "da",
+    # Finnish
+    "finnish": "fi",
+    "fi": "fi",
+    # Hungarian
+    "hungarian": "hu",
+    "hu": "hu",
+    # Norwegian
+    "norwegian": "nb",
+    "nb": "nb",
+    "no": "nb",
+    # Romanian
+    "romanian": "ro",
+    "ro": "ro",
+    # Slovak
+    "slovak": "sk",
+    "sk": "sk",
+    # Swedish
+    "swedish": "sv",
+    "sv": "sv",
+    # Vietnamese
+    "vietnamese": "vi",
+    "vi": "vi",
+    # Filipino
+    "filipino": "fil",
+    "fil": "fil",
+    # Urdu
+    "urdu": "ur",
+    "ur": "ur",
+    # Persian / Farsi
+    "persian": "fa",
+    "farsi": "fa",
+    "fa": "fa",
+}
+
+
+def normalize_language(lang: str) -> str:
+    """
+    Normalize a language value to a Meta-accepted locale code.
+    Handles: human-readable names, short codes, hyphenated locales (en-US → en_US).
+    Returns 'en_US' as fallback if nothing matches.
+    """
+    if not lang:
+        return "en_US"
+    # Normalise separators and whitespace before map lookup
+    cleaned = lang.strip().lower().replace("-", "_")
+    normalized = _LANGUAGE_MAP.get(cleaned)
+    return normalized if normalized else cleaned
+
+
 class MetaTemplateService:
 
     def create_template(
@@ -23,11 +175,14 @@ class MetaTemplateService:
             "Content-Type": "application/json"
         }
 
+        # Normalize language to a Meta-accepted locale code
+        meta_language = normalize_language(language or "en_US")
+
         payload = {
             # Meta requires snake_case lowercase names
             "name": template_name.lower().replace(" ", "_").replace("-", "_"),
             "category": (category or "MARKETING").upper(),
-            "language": {"code": language},
+            "language": meta_language,   # plain string e.g. "en_US" — NOT {"code": "en_US"}
             "components": [
                 {
                     "type": "BODY",

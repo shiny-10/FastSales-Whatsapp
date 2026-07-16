@@ -5,7 +5,7 @@ from fastapi import APIRouter, Body
 from pydantic import BaseModel
 from core.database import SessionLocal
 from models.postgres_model import Campaign, CampaignContact, CampaignRecipient, Contact, MessageLog, Template
-from services.meta_service import MetaWhatsAppService
+from services.meta_service import MetaWhatsAppService, _build_meta_service
 from datetime import datetime
 
 router = APIRouter()
@@ -22,10 +22,9 @@ class CampaignUpdate(BaseModel):
     template_id: Optional[int] = None
     contact_ids: Optional[List[int]] = None
 
-meta_service = MetaWhatsAppService(
-    settings.ACCESS_TOKEN,
-    settings.PHONE_NUMBER_ID
-)
+# Build with correct credentials at request-time (not module load time)
+def _get_meta():
+    return _build_meta_service()
 
 @router.post("/create-campaign")
 def create_campaign(data: CampaignCreate = Body(...)):
@@ -100,9 +99,10 @@ def create_campaign(data: CampaignCreate = Body(...)):
                 getattr(contact, "order_id", "") or ""
             )
 
-            result = meta_service.send_text_message(
+            result = _get_meta().send_template_message(
                 phone,
-                template.template_name
+                template.template_name,
+                language_code=template.language or "en_US",
             )
 
             print(result)
@@ -383,116 +383,125 @@ def campaign_analytics(campaign_id: int):
 
 @router.post("/run-campaign")
 def run_campaign(data: dict):
+    """
+    Send a campaign's template to all its contacts.
+    Accepts { campaign_id } — the template is resolved automatically
+    from the campaign record, no need to pass template_name.
+    """
     db = SessionLocal()
     try:
         campaign_id = data.get("campaign_id")
-        template_name = data.get("template_name")
+        if not campaign_id:
+            return {"success": False, "error": "campaign_id is required"}
 
-        if not campaign_id or not template_name:
-            return {
-                "success": False,
-                "error": "Campaign ID and template name are required"
-            }
-
-        campaign = db.query(Campaign).filter(
-            Campaign.id == campaign_id
-        ).first()
-
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
         if not campaign:
-            return {
-                "success": False,
-                "error": "Campaign not found"
-            }
+            return {"success": False, "error": "Campaign not found"}
 
-        template = db.query(Template).filter(
-            Template.template_name == template_name
-        ).first()
+        if not campaign.template_id:
+            return {"success": False, "error": "Campaign has no template assigned"}
 
+        template = db.query(Template).filter(Template.id == campaign.template_id).first()
         if not template:
-            return {
-                "success": False,
-                "error": "Template not found"
-            }
+            return {"success": False, "error": "Template not found"}
 
-        # Get all contacts associated with this campaign
+        # Use template_name as stored (sanitized same way as on creation)
+        template_name = (template.meta_template_name or template.template_name or "").lower().replace(" ", "_").replace("-", "_")
+        language_code = template.language or "en_US"
+
+        # Get all contacts for this campaign
         campaign_contacts = db.query(CampaignContact).filter(
             CampaignContact.campaign_id == campaign_id
         ).all()
 
-        results = []
-        for campaign_contact in campaign_contacts:
-            contact = db.query(Contact).filter(
-                Contact.id == campaign_contact.contact_id
-            ).first()
+        if not campaign_contacts:
+            return {"success": False, "error": "No contacts in this campaign"}
 
-            if not contact:
+        meta = _get_meta()
+        results = []
+        sent_count = 0
+        failed_count = 0
+
+        for cc in campaign_contacts:
+            contact = db.query(Contact).filter(Contact.id == cc.contact_id).first()
+            if not contact or not contact.phone_number:
+                failed_count += 1
                 continue
 
             phone = contact.phone_number
 
-            message_text = template.template_body
-
-            message_text = message_text.replace(
-                "{{name}}",
-                contact.name or ""
+            result = meta.send_template_message(
+                to=phone,
+                template_name=template_name,
+                language_code=language_code,
             )
 
-            message_text = message_text.replace(
-                "{{order_id}}",
-                getattr(contact, "order_id", "") or ""
-            )
-
-            result = meta_service.send_template_message(
-                phone,
-                template_name
-            )
+            print(f"[run-campaign] phone={phone} result={result}")
 
             message_id = None
-
+            status = "failed"
             if result.get("messages"):
                 message_id = result["messages"][0].get("id")
+                status = "sent"
+                sent_count += 1
+            else:
+                failed_count += 1
 
+            # Log the message
             msg = MessageLog(
                 message_id=message_id,
                 phone_number=phone,
-                text=message_text,
+                text=f"[Template: {template_name}]",
                 direction="outgoing",
-                status="sent",
-                organization_id=campaign.organization_id
+                status=status,
+                organization_id=campaign.organization_id,
             )
-
             db.add(msg)
 
-            rec = CampaignRecipient(
-                campaign_id=campaign.id,
-                phone_number=phone,
-                status="sent",
-                message_id=message_id
-            )
+            # Upsert recipient — update existing row instead of failing on duplicate
+            existing_rec = db.query(CampaignRecipient).filter(
+                CampaignRecipient.campaign_id == campaign.id,
+                CampaignRecipient.phone_number == phone,
+            ).first()
 
-            db.add(rec)
+            if existing_rec:
+                existing_rec.status = status
+                existing_rec.message_id = message_id
+            else:
+                rec = CampaignRecipient(
+                    campaign_id=campaign.id,
+                    contact_id=contact.id,
+                    phone_number=phone,
+                    status=status,
+                    message_id=message_id,
+                )
+                db.add(rec)
 
             results.append({
                 "contact_id": contact.id,
                 "phone": phone,
-                "message_id": message_id
+                "status": status,
+                "message_id": message_id,
             })
 
+        # Mark campaign as completed
+        campaign.status = "completed"
         db.commit()
 
         return {
             "success": True,
             "campaign_id": campaign.id,
-            "message_count": len(results),
-            "results": results
+            "campaign_name": campaign.campaign_name,
+            "template_name": template_name,
+            "total": len(results),
+            "sent": sent_count,
+            "failed": failed_count,
+            "results": results,
         }
 
     except Exception as e:
         db.rollback()
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
     finally:
         db.close()
 

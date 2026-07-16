@@ -1,10 +1,10 @@
 "use client";
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { Plus, Edit2, Trash2, RefreshCw, CheckCircle, Clock, XCircle, FileText, X, Activity } from "lucide-react";
+import { Plus, Edit2, Trash2, RefreshCw, CheckCircle, Clock, XCircle, FileText, X, Activity, Send } from "lucide-react";
 import {
   getTemplates, createTemplate, updateTemplate,
-  deleteTemplate, syncTemplateStatus, getRecentActivities,
+  deleteTemplate, syncTemplateStatus, resubmitTemplate, getRecentActivities,
 } from "../../services/templateService";
 import { getOrganizations } from "../../services/organizationService";
 import StatsCard from "../../components/StatsCard";
@@ -33,6 +33,7 @@ export default function TemplatesPage() {
   const [notification, setNotification] = useState({ type: "", message: "" });
   const [isLoading, setIsLoading] = useState(false);
   const [syncingIds, setSyncingIds] = useState<number[]>([]);
+  const [resubmittingIds, setResubmittingIds] = useState<number[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<any>(null);
   const [organizations, setOrganizations] = useState<any[]>([]);
@@ -116,31 +117,44 @@ export default function TemplatesPage() {
     catch (e: any) { notify("error", (e as Error).message || "Failed to delete"); }
   };
 
-  const handleSync = async (id: any) => {
+  const handleSync = async (id: any, templateName: string) => {
     const tid = Number(id);
     setSyncingIds(s => [...s, tid]);
     try {
       const result = await syncTemplateStatus(id);
-      // result = { results: [...] }
-      const item: any = result?.results
-        ? (result.results.find((r: any) => Number(r.template_id) === tid) || result.results[0])
-        : result;
 
-      if (item?.meta_status) {
-        setTemplates(p => p.map(t => Number(t.id) === tid ? { ...t, meta_status: item.meta_status, status: item.meta_status } : t));
+      if (result?.meta_status) {
+        setTemplates(p => p.map(t =>
+          Number(t.id) === tid ? { ...t, meta_status: result.meta_status, status: result.meta_status } : t
+        ));
       }
 
-      if (item?.success) {
-        notify("success", `Status: ${item.meta_status || "PENDING"} — ${item.message || "Synced with Meta"}`);
+      if (result?.success) {
+        notify("success", `"${templateName}" — ${result.meta_status}`);
       } else {
-        // Show the real Meta error — but template still exists locally
-        const errMsg = item?.message || "Could not reach Meta";
-        notify("error", errMsg);
+        notify("error", result?.message || "Could not reach Meta");
       }
     } catch (e: any) {
       notify("error", (e as Error).message || "Sync failed");
     } finally {
       setSyncingIds(s => s.filter(x => x !== tid));
+    }
+  };
+
+  const handleResubmit = async (id: any) => {
+    const tid = Number(id);
+    setResubmittingIds(s => [...s, tid]);
+    try {
+      const result = await resubmitTemplate(id);
+      notify("success", result.message || "Template resubmitted to Meta!");
+      setTemplates(await getTemplates());
+    } catch (e: any) {
+      const err = e as any;
+      const msg = err.message || "Resubmit failed";
+      const hint = err.hint ? ` — ${err.hint}` : "";
+      notify("error", msg + hint);
+    } finally {
+      setResubmittingIds(s => s.filter(x => x !== tid));
     }
   };
 
@@ -215,11 +229,11 @@ export default function TemplatesPage() {
                   <td>
                     <div className="flex items-center justify-center gap-2">
                       {[
-                        { Icon: Edit2, fn: () => handleEdit(t), col: "#a78bfa" },
-                        { Icon: Trash2, fn: () => handleDelete(t.id), col: "#f43f5e" },
-                        { Icon: RefreshCw, fn: () => handleSync(t.id), col: "#10b981", spin: syncingIds.includes(Number(t.id)) },
-                      ].map(({ Icon, fn, col, spin }, k) => (
-                        <button key={k} onClick={fn}
+                        { Icon: Edit2, fn: () => handleEdit(t), col: "#a78bfa", title: "Edit" },
+                        { Icon: Trash2, fn: () => handleDelete(t.id), col: "#f43f5e", title: "Delete" },
+                        { Icon: RefreshCw, fn: () => handleSync(t.id, t.template_name), col: "#10b981", spin: syncingIds.includes(Number(t.id)), title: "Sync approval status from Meta" },
+                      ].map(({ Icon, fn, col, spin, title }, k) => (
+                        <button key={k} onClick={fn} title={title}
                           className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
                           style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.07)" }}
                           onMouseEnter={e => (e.currentTarget.style.background = col + "22")}
@@ -227,6 +241,17 @@ export default function TemplatesPage() {
                           <Icon size={13} style={{ color: col }} className={(spin as any) ? "animate-spin" : ""} />
                         </button>
                       ))}
+                      {/* Resubmit button — shown when template was never sent to Meta */}
+                      {!t.meta_template_id && (
+                        <button onClick={() => handleResubmit(t.id)} title="Resubmit to Meta"
+                          disabled={resubmittingIds.includes(Number(t.id))}
+                          className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors disabled:opacity-50"
+                          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.07)" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = "#f59e0b22")}
+                          onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
+                          <Send size={13} style={{ color: "#f59e0b" }} className={resubmittingIds.includes(Number(t.id)) ? "animate-pulse" : ""} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -288,7 +313,45 @@ export default function TemplatesPage() {
                   </div>
                   <div><span style={labelStyle}>Language</span>
                     <select value={templateData.language} onChange={e => setTemplateData({ ...templateData, language: e.target.value })} style={inputStyle} className="focus:outline-none">
-                      <option>en_US</option><option>hi</option>
+                      <option value="en_US">English (US)</option>
+                      <option value="en_GB">English (UK)</option>
+                      <option value="ar">Arabic</option>
+                      <option value="zh_CN">Chinese (Simplified)</option>
+                      <option value="zh_TW">Chinese (Traditional)</option>
+                      <option value="cs">Czech</option>
+                      <option value="da">Danish</option>
+                      <option value="nl">Dutch</option>
+                      <option value="fi">Finnish</option>
+                      <option value="fr">French</option>
+                      <option value="de">German</option>
+                      <option value="el">Greek</option>
+                      <option value="he">Hebrew</option>
+                      <option value="hi">Hindi</option>
+                      <option value="hu">Hungarian</option>
+                      <option value="id">Indonesian</option>
+                      <option value="it">Italian</option>
+                      <option value="ja">Japanese</option>
+                      <option value="ko">Korean</option>
+                      <option value="ms">Malay</option>
+                      <option value="nb">Norwegian</option>
+                      <option value="fa">Persian (Farsi)</option>
+                      <option value="fil">Filipino</option>
+                      <option value="pl">Polish</option>
+                      <option value="pt_BR">Portuguese (Brazil)</option>
+                      <option value="pt_PT">Portuguese (Portugal)</option>
+                      <option value="ro">Romanian</option>
+                      <option value="ru">Russian</option>
+                      <option value="sk">Slovak</option>
+                      <option value="es_ES">Spanish (Spain)</option>
+                      <option value="es_MX">Spanish (Mexico)</option>
+                      <option value="sv">Swedish</option>
+                      <option value="sw">Swahili</option>
+                      <option value="ta">Tamil</option>
+                      <option value="th">Thai</option>
+                      <option value="tr">Turkish</option>
+                      <option value="uk">Ukrainian</option>
+                      <option value="ur">Urdu</option>
+                      <option value="vi">Vietnamese</option>
                     </select>
                   </div>
                 </div>

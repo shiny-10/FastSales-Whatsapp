@@ -102,23 +102,39 @@ export const deleteTemplate = async (id: string | number) => {
   }
 };
 
-export const syncTemplateStatus = async (id?: string | number) => {
+export const syncTemplateStatus = async (id: string | number) => {
   try {
-    const url = id ? `${API_URL}/sync-status?template_id=${id}` : `${API_URL}/sync-status`;
-    const response = await fetch(url);
+    const response = await fetch(`${API_URL}/${id}/sync`, { method: "POST" });
 
     if (!response.ok) {
       throw new Error(`Failed to sync template status: ${response.statusText}`);
     }
 
     const result = await response.json();
-    // When syncing all templates, backend returns { results: [...] }
     if (result.success === false) {
-      throw new Error(result.message || "Failed to sync template status");
+      // Surface the message but don't throw — caller decides how to display it
+      return result;
     }
     return result;
   } catch (error) {
     console.error("Error syncing template status:", error);
+    throw error;
+  }
+};
+
+export const resubmitTemplate = async (id: string | number) => {
+  try {
+    const response = await fetch(`${API_URL}/resubmit/${id}`, { method: "POST" });
+    let result: any = {};
+    try { result = await response.json(); } catch { /* non-JSON */ }
+    if (!response.ok || result.success === false) {
+      const err: any = new Error(result.message || `Resubmit failed (${response.status})`);
+      if (result.hint) err.hint = result.hint;
+      throw err;
+    }
+    return result;
+  } catch (error) {
+    console.error("Error resubmitting template:", error);
     throw error;
   }
 };

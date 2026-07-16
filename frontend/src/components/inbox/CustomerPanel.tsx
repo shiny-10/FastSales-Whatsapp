@@ -12,6 +12,7 @@ import { useInboxStore } from "@/store/inbox-store";
 
 interface CustomerPanelProps {
   conversation: Conversation;
+  onClose?: () => void;
 }
 
 const STATUS_OPTIONS: Array<{ value: ConversationStatus; label: string; color: string; bg: string }> = [
@@ -35,7 +36,7 @@ const sectionLabel = {
   display: "block",
 };
 
-export function CustomerPanel({ conversation }: CustomerPanelProps) {
+export function CustomerPanel({ conversation, onClose }: CustomerPanelProps) {
   const { mutateAsync: updateConv } = useUpdateConversation();
   const { mutateAsync: archiveConv } = useArchiveConversation();
   const { mutateAsync: deleteConv } = useDeleteConversation();
@@ -75,7 +76,20 @@ export function CustomerPanel({ conversation }: CustomerPanelProps) {
     <div className="h-full overflow-y-auto scrollbar-none" style={{ background: "#ffffff" }}>
 
       {/* Header */}
-      <div className="px-5 pt-6 pb-5 text-center" style={{ borderBottom: "1px solid #f0f1f5" }}>
+      <div className="px-5 pt-6 pb-5 text-center relative" style={{ borderBottom: "1px solid #f0f1f5" }}>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-4 right-4 flex items-center justify-center w-7 h-7 rounded-lg transition-colors"
+            style={{ color: "#b0b3c6" }}
+            onMouseEnter={e => (e.currentTarget.style.background = "#f5f6fa")}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            title="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
         <ContactAvatar name={conversation.customer_name} phone={conversation.customer_phone} className="h-16 w-16 mx-auto mb-3" />
 
         <div className="flex items-center justify-center gap-1.5 group mb-1">

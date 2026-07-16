@@ -2,6 +2,25 @@ from __future__ import annotations
 import requests
 from core.config import settings
 
+def _build_meta_service() -> "MetaWhatsAppService":
+    """
+    Build a MetaWhatsAppService using the correct env vars.
+    Falls back through the available token/phone-id fields so both
+    the legacy names (ACCESS_TOKEN / PHONE_NUMBER_ID) and the
+    current names (META_ACCESS_TOKEN / META_WHATSAPP_PHONE_NUMBER_ID)
+    are tried.
+    """
+    token = (
+        settings.META_ACCESS_TOKEN
+        or getattr(settings, "ACCESS_TOKEN", None)
+    )
+    phone_id = (
+        settings.META_WHATSAPP_PHONE_NUMBER_ID
+        or getattr(settings, "PHONE_NUMBER_ID", None)
+    )
+    return MetaWhatsAppService(token, phone_id)
+
+
 class MetaWhatsAppService:
 
     def __init__(
@@ -19,7 +38,8 @@ class MetaWhatsAppService:
     def send_template_message(
         self,
         to: str,
-        template_name: str
+        template_name: str,
+        language_code: str = "en_US",
     ):
 
         headers = {
@@ -36,7 +56,7 @@ class MetaWhatsAppService:
             "template": {
                 "name": template_name,
                 "language": {
-                    "code": "en_US"
+                    "code": language_code
                 }
             }
         }
