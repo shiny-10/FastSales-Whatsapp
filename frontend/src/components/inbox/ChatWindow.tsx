@@ -65,7 +65,7 @@ export function ChatWindow({ conversationId, onBack, onContactClick }: ChatWindo
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { mutateAsync: updateConv } = useUpdateConversation();
-  const { typingMap, messages: storeMessages, addMessage } = useInboxStore();
+  const { typingMap, messages: storeMessages, addMessage, updateConversation, hiddenMessageIds, hideMessageLocally } = useInboxStore();
   const { emitTyping, joinConversation } = useSocket();
   const queryClient = useQueryClient();
 
@@ -90,10 +90,10 @@ export function ChatWindow({ conversationId, onBack, onContactClick }: ChatWindo
     const deduped = Array.from(
       new Map(merged.map((m) => [String(m.id), m])).values()
     );
-    return deduped.sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    );
-  }, [messagesData, storeMessages, conversationId]);
+    return deduped
+      .filter((m) => !hiddenMessageIds.has(String(m.id)))
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }, [messagesData, storeMessages, conversationId, hiddenMessageIds]);
 
   const searchMatches = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -160,6 +160,8 @@ export function ChatWindow({ conversationId, onBack, onContactClick }: ChatWindo
         ...(replyTo ? { reply_to_message_id: replyTo.id } : {}),
       });
       addMessage(msg);
+      // Optimistically mark conversation as PENDING (waiting for customer reply/read)
+      updateConversation(conversationId, { status: "PENDING" });
       setText("");
       setReplyTo(null);
       scrollToBottom();
@@ -183,9 +185,11 @@ export function ChatWindow({ conversationId, onBack, onContactClick }: ChatWindo
 
   const handleMediaSent = useCallback((message: Message) => {
     addMessage(message);
+    // Optimistically mark conversation as PENDING (waiting for customer reply/read)
+    updateConversation(conversationId, { status: "PENDING" });
     queryClient.invalidateQueries({ queryKey: ["messages", conversationId] });
     queryClient.invalidateQueries({ queryKey: ["conversations"] });
-  }, [addMessage, conversationId, queryClient]);
+  }, [addMessage, updateConversation, conversationId, queryClient]);
 
   const handleEmojiClick = (emojiData: EmojiClickData) => {
     setText((prev) => prev + emojiData.emoji);
@@ -212,26 +216,45 @@ export function ChatWindow({ conversationId, onBack, onContactClick }: ChatWindo
 
   // ── Message delete (single) ─────────────────────────────────────────────────
   const handleDeleteMessage = useCallback(async (messageId: string) => {
-    if (!window.confirm("Delete this message?")) return;
-    // Optimistic remove from cache immediately
-    queryClient.setQueryData(["messages", conversationId], (old: any) => {
+    if (!window.confirm("Delete for everyone? This cannot be undone.")) return;
+    // Optimistic soft-delete: replace with deleted placeholder in-place
+    const softDelete = (old: any) => {
       if (!old?.pages) return old;
       return {
         ...old,
         pages: old.pages.map((page: any) => ({
           ...page,
-          items: page.items.filter((m: any) => String(m.id) !== messageId),
+          items: page.items.map((m: any) =>
+            String(m.id) === messageId
+              ? { ...m, is_deleted: true, content: undefined, caption: undefined }
+              : m
+          ),
         })),
       };
-    });
+    };
+    queryClient.setQueryData(["messages", conversationId], softDelete);
+    // Also update store messages
+    const { messages: storeMessages } = useInboxStore.getState();
+    const updatedStore: Record<string, any[]> = {};
+    for (const cid in storeMessages) {
+      updatedStore[cid] = storeMessages[cid].map((m) =>
+        String(m.id) === messageId ? { ...m, is_deleted: true, content: undefined } : m
+      );
+    }
+    useInboxStore.setState({ messages: updatedStore });
     // Persist to backend
     try {
       await deleteMessage(messageId);
     } catch {
-      // On failure, refetch to restore accurate state
+      // Revert on failure
       queryClient.invalidateQueries({ queryKey: ["messages", conversationId] });
     }
   }, [conversationId, queryClient, deleteMessage]);
+
+  // ── Delete for me (local-only, no server call) ──────────────────────────────
+  const handleDeleteForMe = useCallback((messageId: string) => {
+    hideMessageLocally(messageId);
+  }, [hideMessageLocally]);
 
   // ── Multi-select ────────────────────────────────────────────────────────────
   const handleSelectMessage = useCallback((messageId: string, sel: boolean) => {
@@ -245,19 +268,33 @@ export function ChatWindow({ conversationId, onBack, onContactClick }: ChatWindo
 
   const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`Delete ${selectedIds.size} message${selectedIds.size > 1 ? "s" : ""}?`)) return;
+    if (!window.confirm(`Delete ${selectedIds.size} message${selectedIds.size > 1 ? "s" : ""} for everyone?`)) return;
     const ids = Array.from(selectedIds);
-    // Optimistic remove
-    queryClient.setQueryData(["messages", conversationId], (old: any) => {
+    // Optimistic soft-delete
+    const softDeleteAll = (old: any) => {
       if (!old?.pages) return old;
       return {
         ...old,
         pages: old.pages.map((page: any) => ({
           ...page,
-          items: page.items.filter((m: any) => !selectedIds.has(String(m.id))),
+          items: page.items.map((m: any) =>
+            selectedIds.has(String(m.id))
+              ? { ...m, is_deleted: true, content: undefined, caption: undefined }
+              : m
+          ),
         })),
       };
-    });
+    };
+    queryClient.setQueryData(["messages", conversationId], softDeleteAll);
+    // Also update store
+    const { messages: storeMessages } = useInboxStore.getState();
+    const updatedStore: Record<string, any[]> = {};
+    for (const cid in storeMessages) {
+      updatedStore[cid] = storeMessages[cid].map((m) =>
+        selectedIds.has(String(m.id)) ? { ...m, is_deleted: true, content: undefined } : m
+      );
+    }
+    useInboxStore.setState({ messages: updatedStore });
     setSelectedIds(new Set());
     setSelectionMode(false);
     // Persist to backend
@@ -349,7 +386,11 @@ export function ChatWindow({ conversationId, onBack, onContactClick }: ChatWindo
             )}
           </div>
           <p className="text-xs mt-0.5" style={{ color: "#b0b3c6" }}>
-            {conversation.last_message_at ? `last seen ${formatLastSeen(conversation.last_message_at)}` : conversation.customer_phone}
+            {conversation.customer_last_seen_at
+              ? formatLastSeen(conversation.customer_last_seen_at)
+              : conversation.last_message_at
+              ? formatLastSeen(conversation.last_message_at)
+              : conversation.customer_phone}
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -450,6 +491,7 @@ export function ChatWindow({ conversationId, onBack, onContactClick }: ChatWindo
                   isCurrentMatch={currentMatch?.id === msg.id}
                   onReply={setReplyTo}
                   onDelete={handleDeleteMessage}
+                  onDeleteForMe={handleDeleteForMe}
                   selected={selectedIds.has(String(msg.id))}
                   onSelect={handleSelectMessage}
                   selectionMode={selectionMode}

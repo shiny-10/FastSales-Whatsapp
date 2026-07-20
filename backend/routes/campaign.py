@@ -85,6 +85,14 @@ def create_campaign(data: CampaignCreate = Body(...)):
             if not contact:
                 continue
 
+            # Always add to CampaignContact so Contacts count is correct
+            existing_cc = db.query(CampaignContact).filter(
+                CampaignContact.campaign_id == campaign.id,
+                CampaignContact.contact_id == contact_id,
+            ).first()
+            if not existing_cc:
+                db.add(CampaignContact(campaign_id=campaign.id, contact_id=contact_id))
+
             phone = contact.phone_number
 
             message_text = template.template_body
@@ -126,6 +134,7 @@ def create_campaign(data: CampaignCreate = Body(...)):
             rec = CampaignRecipient(
                 campaign_id=campaign.id,
                 phone_number=phone,
+                contact_id=contact.id,
                 status="sent",
                 message_id=message_id
             )
@@ -138,6 +147,8 @@ def create_campaign(data: CampaignCreate = Body(...)):
                 "message_id": message_id
             })
 
+        # Mark completed after all messages sent
+        campaign.status = "completed"
         db.commit()
 
         return {
@@ -343,27 +354,11 @@ def campaign_analytics(campaign_id: int):
 
     total_recipients = len(recipients)
 
-    sent = len([
-        r for r in recipients
-        if r.status == "sent"
-    ])
+    sent = len([r for r in recipients if r.status == "sent"])
+    delivered = len([r for r in recipients if r.status == "delivered"])
+    read = len([r for r in recipients if r.status == "read"])
+    failed = len([r for r in recipients if r.status == "failed"])
 
-    delivered = len([
-        r for r in recipients
-        if r.status == "delivered"
-    ])
-
-    read = len([
-        r for r in recipients
-        if r.status == "read"
-    ])
-
-    failed = len([
-        r for r in recipients
-        if r.status == "failed"
-    ])
-
-    # Get contact count from CampaignContact
     contact_count = db.query(CampaignContact).filter(
         CampaignContact.campaign_id == campaign_id
     ).count()
@@ -380,6 +375,95 @@ def campaign_analytics(campaign_id: int):
         "read": read,
         "failed": failed
     }
+
+
+@router.get("/{campaign_id}/recipients")
+def campaign_recipients(campaign_id: int):
+    """
+    Returns per-contact delivery breakdown with full status details.
+    Statuses: sent (single tick), delivered (double grey), read (blue ticks), failed
+    """
+    db = SessionLocal()
+    try:
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+        if not campaign:
+            return {"success": False, "message": "Campaign not found"}
+
+        template = db.query(Template).filter(Template.id == campaign.template_id).first()
+
+        recipients = (
+            db.query(CampaignRecipient)
+            .filter(CampaignRecipient.campaign_id == campaign_id)
+            .all()
+        )
+
+        # Build a lookup: phone → latest MessageLog status (updated by webhook)
+        phone_set = {r.phone_number for r in recipients}
+        msg_logs = (
+            db.query(MessageLog)
+            .filter(MessageLog.phone_number.in_(phone_set))
+            .order_by(MessageLog.created_at.desc())
+            .all()
+        )
+        # Use the most recent log per phone
+        latest_log: dict[str, MessageLog] = {}
+        for log in msg_logs:
+            if log.phone_number not in latest_log:
+                latest_log[log.phone_number] = log
+
+        # Build contact lookup
+        contact_lookup: dict[str, Contact] = {}
+        if recipients:
+            contact_ids = [r.contact_id for r in recipients if r.contact_id]
+            contacts = db.query(Contact).filter(Contact.id.in_(contact_ids)).all()
+            for c in contacts:
+                contact_lookup[str(c.id)] = c
+
+        # Aggregate
+        rows = []
+        for r in recipients:
+            contact = contact_lookup.get(str(r.contact_id)) if r.contact_id else None
+            log = latest_log.get(r.phone_number)
+
+            # Prefer MessageLog status (updated by webhook) over CampaignRecipient status
+            effective_status = (log.status if log else r.status) or "sent"
+
+            rows.append({
+                "contact_id": r.contact_id,
+                "contact_name": contact.name if contact else None,
+                "phone_number": r.phone_number,
+                "message_id": r.message_id,
+                "status": effective_status,
+                "sent_at": log.created_at.isoformat() + "Z" if log and log.created_at else (
+                    r.created_at.isoformat() + "Z" if r.created_at else None
+                ),
+            })
+
+        # Summary counts using effective statuses
+        statuses = [row["status"] for row in rows]
+        summary = {
+            "total":     len(rows),
+            "sent":      statuses.count("sent"),
+            "delivered": statuses.count("delivered"),
+            "read":      statuses.count("read"),
+            "failed":    statuses.count("failed"),
+            "pending":   statuses.count("pending"),
+        }
+
+        return {
+            "success": True,
+            "campaign_id": campaign.id,
+            "campaign_name": campaign.campaign_name,
+            "campaign_status": campaign.status,
+            "template_name": template.template_name if template else None,
+            "created_at": campaign.created_at.isoformat() + "Z" if campaign.created_at else None,
+            "summary": summary,
+            "recipients": rows,
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        db.close()
 
 @router.post("/run-campaign")
 def run_campaign(data: dict):

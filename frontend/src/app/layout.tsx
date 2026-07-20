@@ -19,8 +19,8 @@ function AppShell({ children }: { children: ReactNode }) {
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Navbar />
         <main
-          className={isInbox ? "flex-1 overflow-hidden" : "flex-1 overflow-y-auto p-6"}
-          style={isInbox ? {} : { background: "var(--c-bg)" }}
+          className={isInbox ? "flex-1 overflow-hidden" : "flex-1 overflow-y-auto"}
+          style={isInbox ? {} : { background: "#f0f2ff" }}
         >
           {children}
         </main>

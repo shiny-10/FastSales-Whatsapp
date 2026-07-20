@@ -102,3 +102,8 @@ export const deleteCampaign = async (id: string | number) => {
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 };
+
+export const getCampaignRecipients = async (id: string | number) => {
+  const response = await fetch(`${API_URL}/${id}/recipients`);
+  return response.json();
+};

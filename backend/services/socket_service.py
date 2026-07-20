@@ -54,3 +54,17 @@ def emit_agent_assigned(
 ):
     payload = {"conversation_id": conversation_id, "agent_id": agent_id}
     _broadcast(organization_id, "agent_assigned", payload)
+
+def emit_conversation_update(organization_id: int, conversation_id: int, updates: dict):
+    """Push partial conversation field updates (status, unread_count, etc.) to clients."""
+    _broadcast(organization_id, "conversation_update", {
+        "conversation_id": str(conversation_id),
+        **updates,
+    })
+
+def emit_message_deleted(organization_id: int, conversation_id: int, message_id: int):
+    """Notify clients that a message was soft-deleted."""
+    _broadcast(organization_id, "message_deleted", {
+        "conversation_id": str(conversation_id),
+        "message_id": str(message_id),
+    })

@@ -49,7 +49,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   const [connected, setConnected] = useState(false);
   const queryClient = useQueryClient();
-  const { addMessage, updateMessageStatus, addReaction, setTyping } = useInboxStore();
+  const { addMessage, updateMessageStatus, addReaction, setTyping, addNotification } = useInboxStore();
 
   const connect = useCallback(() => {
     if (unmounted.current) return;
@@ -114,6 +114,33 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           media_files: raw.media_files ?? [],
         };
         addMessage(message);
+
+        // Optimistically bump unread_count for conversations the user isn't
+        // currently viewing so the badge updates instantly (like real WhatsApp).
+        const { activeConversationId, updateConversation, conversations } = useInboxStore.getState();
+        const convId = String(message.conversation_id);
+        if (message.sender_type === "CUSTOMER" && convId !== activeConversationId) {
+          updateConversation(convId, {
+            unread_count: (useInboxStore.getState().conversations.find(c => c.id === convId)?.unread_count ?? 0) + 1,
+            last_message_preview: message.content ?? undefined,
+            last_message_sender: message.sender_type,
+            last_message_at: message.created_at,
+          });
+
+          // Push a notification for the bell icon
+          const conv = conversations.find(c => c.id === convId);
+          addNotification({
+            id: String(message.id),
+            conversationId: convId,
+            customerName: conv?.customer_name ?? conv?.customer_phone ?? "Unknown",
+            customerPhone: conv?.customer_phone ?? "",
+            preview: message.content
+              ? message.content.slice(0, 80)
+              : `[${message.message_type?.toLowerCase() ?? "message"}]`,
+            receivedAt: message.created_at,
+            read: false,
+          });
+        }
         queryClient.refetchQueries({ queryKey: ["conversations"] });
         queryClient.refetchQueries({ queryKey: ["messages", String(message.conversation_id)] });
         return;
@@ -121,23 +148,29 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
       if (type === "message_status") {
         const convId = String(data.conversation_id ?? "");
-        const ref: string = data.meta_message_id ?? data.message_id ?? "";
-        updateMessageStatus(ref, data.status as any);
-        queryClient.setQueryData(["messages", convId], (old: any) => {
-          if (!old?.pages) return old;
-          return {
-            ...old,
-            pages: old.pages.map((page: any) => ({
-              ...page,
-              items: page.items.map((m: Message) =>
-                m.meta_message_id === data.meta_message_id ||
-                String(m.id) === String(data.message_id)
-                  ? { ...m, status: data.status }
-                  : m
-              ),
-            })),
-          };
-        });
+        const metaId: string = data.meta_message_id ?? "";
+        const dbId: string = String(data.message_id ?? "");
+
+        // Update store messages (real-time ones added via addMessage)
+        updateMessageStatus(metaId || dbId, data.status as any);
+
+        // Update React Query infinite-query cache for this conversation
+        if (convId) {
+          queryClient.setQueryData(["messages", convId], (old: any) => {
+            if (!old?.pages) return old;
+            return {
+              ...old,
+              pages: old.pages.map((page: any) => ({
+                ...page,
+                items: page.items.map((m: Message) => {
+                  const matchesMeta = metaId && m.meta_message_id === metaId;
+                  const matchesDb   = dbId   && String(m.id) === dbId;
+                  return matchesMeta || matchesDb ? { ...m, status: data.status } : m;
+                }),
+              })),
+            };
+          });
+        }
         return;
       }
 
@@ -146,6 +179,57 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         if (reaction) {
           addReaction(reaction);
           queryClient.invalidateQueries({ queryKey: ["messages"] });
+        }
+        return;
+      }
+
+      if (type === "message_deleted") {
+        // Soft-delete: flip is_deleted=true in store + query cache
+        const convId = String(data.conversation_id ?? "");
+        const msgId  = String(data.message_id ?? "");
+        if (!msgId) return;
+
+        // Update store messages (those added via addMessage)
+        const { messages: storeMessages } = useInboxStore.getState();
+        const updatedMessages: Record<string, any[]> = {};
+        let changed = false;
+        for (const cid in storeMessages) {
+          updatedMessages[cid] = storeMessages[cid].map((m) => {
+            if (String(m.id) === msgId) { changed = true; return { ...m, is_deleted: true, content: undefined }; }
+            return m;
+          });
+        }
+        if (changed) useInboxStore.setState({ messages: updatedMessages });
+
+        // Update React Query infinite-query cache
+        if (convId) {
+          queryClient.setQueryData(["messages", convId], (old: any) => {
+            if (!old?.pages) return old;
+            return {
+              ...old,
+              pages: old.pages.map((page: any) => ({
+                ...page,
+                items: page.items.map((m: Message) =>
+                  String(m.id) === msgId ? { ...m, is_deleted: true, content: undefined } : m
+                ),
+              })),
+            };
+          });
+        }
+        return;
+      }
+
+      if (type === "conversation_update") {
+        // Real-time conversation status change (e.g. PENDING ↔ OPEN)
+        const convId = String(data.conversation_id ?? "");
+        if (convId) {
+          const updates: Record<string, any> = {};
+          if (data.status !== undefined) updates.status = data.status;
+          if (Object.keys(updates).length > 0) {
+            useInboxStore.getState().updateConversation(convId, updates);
+          }
+          // Also refetch so the Waiting/All tabs get accurate counts
+          queryClient.refetchQueries({ queryKey: ["conversations"] });
         }
         return;
       }

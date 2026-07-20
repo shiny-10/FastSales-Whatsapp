@@ -11,6 +11,8 @@ export function useConversations(params?: {
   status?: ConversationStatus;
   search?: string;
   archived?: boolean | null;
+  unread?: boolean;
+  assigned?: boolean;
   page?: number;
   page_size?: number;
 }) {
@@ -32,6 +34,8 @@ export function useConversation(id: string | null) {
       return data;
     },
     enabled: !!id,
+    staleTime: 0,
+    refetchOnMount: true,
   });
 }
 
@@ -145,8 +149,9 @@ export function useMarkConversationRead() {
       return data as Conversation;
     },
     onSuccess: (conversation) => {
-      qc.invalidateQueries({ queryKey: ["conversations"] });
+      // Update the single-conversation cache so ChatWindow gets fresh data including customer_last_seen_at
       qc.setQueryData(["conversation", conversation.id], conversation);
+      qc.invalidateQueries({ queryKey: ["conversations"] });
     },
     onError: () => toast.error("Failed to mark conversation as read"),
   });

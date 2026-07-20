@@ -5,7 +5,7 @@ import { Archive, MoreVertical, Trash2, Pin, Star, CheckCheck, Check, Clock } fr
 import { cn, formatMessageTime, truncate } from "@/lib/utils";
 import { format, isToday, isYesterday } from "date-fns";
 import { ContactAvatar } from "./ContactAvatar";
-import { useArchiveConversation, useDeleteConversation } from "@/hooks/use-conversations";
+import { useArchiveConversation, useDeleteConversation, useUpdateConversation } from "@/hooks/use-conversations";
 import { useInboxStore } from "@/store/inbox-store";
 import type { Conversation } from "@/lib/types";
 
@@ -42,6 +42,7 @@ export function ConversationCard({ conversation, isActive, onClick }: Conversati
   const { setActiveConversation } = useInboxStore();
   const { mutateAsync: archiveConv } = useArchiveConversation();
   const { mutateAsync: deleteConv } = useDeleteConversation();
+  const { mutateAsync: updateConv } = useUpdateConversation();
 
   const handleArchive = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -52,6 +53,11 @@ export function ConversationCard({ conversation, isActive, onClick }: Conversati
     if (!window.confirm("Delete this conversation?")) return;
     await deleteConv(conversation.id);
     setActiveConversation(null);
+  };
+  const handleToggleWaiting = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newStatus = conversation.status === "PENDING" ? "OPEN" : "PENDING";
+    await updateConv({ id: conversation.id, status: newStatus });
   };
 
   const hasUnread = conversation.unread_count > 0;
@@ -101,7 +107,9 @@ export function ConversationCard({ conversation, isActive, onClick }: Conversati
           >
             {conversation.last_message_at
               ? (() => {
-                  const d = new Date(conversation.last_message_at);
+                  const raw = conversation.last_message_at;
+                  const utc = raw.endsWith("Z") || raw.includes("+") ? raw : raw + "Z";
+                  const d = new Date(utc);
                   if (isToday(d)) return format(d, "h:mm a");
                   if (isYesterday(d)) return "Yesterday";
                   return format(d, "dd/MM/yyyy");
@@ -186,6 +194,16 @@ export function ConversationCard({ conversation, isActive, onClick }: Conversati
               className="z-50 min-w-[160px] rounded-xl p-1 text-sm shadow-xl"
               style={{ background: "#ffffff", border: "1px solid #e8eaf0" }}
             >
+              <DropdownMenu.Item
+                className="flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer outline-none text-sm transition-colors"
+                style={{ color: "#4b4f6b" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "#f5f6fa")}
+                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                onSelect={e => { e.preventDefault(); handleToggleWaiting(e as any); }}
+              >
+                <Clock className="h-4 w-4" style={{ color: "#9498b0" }} />
+                {conversation.status === "PENDING" ? "Mark as Open" : "Mark as Waiting"}
+              </DropdownMenu.Item>
               <DropdownMenu.Item
                 className="flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer outline-none text-sm transition-colors"
                 style={{ color: "#4b4f6b" }}

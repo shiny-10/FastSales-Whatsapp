@@ -18,7 +18,6 @@ from routes.conversations import router as conversations_router
 from routes.auto_replies import router as auto_replies_router
 from routes.chatbot_rules import router as chatbot_rules_router
 from routes.contacts import router as contact_router
-from routes.organizations import router as organization_router
 from routes.ws import router as ws_router
 
 # ─── WhatsApp Inbox Routers ────────────────────────────────────────────────────
@@ -69,13 +68,16 @@ app.include_router(inbox_messages_router,     prefix="/api",                 tag
 app.include_router(auto_replies_router,       prefix="/api",                 tags=["Auto Replies"])
 app.include_router(chatbot_rules_router,      prefix="/api",                 tags=["Chatbot Rules"])
 app.include_router(contact_router,            prefix="/api/contacts",        tags=["Contacts"])
-app.include_router(organization_router,       prefix="/api/organizations",   tags=["Organizations"])
 app.include_router(ws_router)
 
 # WhatsApp Inbox
 app.include_router(inbox_conversations_router)
 app.include_router(inbox_thread_messages_router)
 app.include_router(inbox_whatsapp_router)
+
+# Scheduled messages
+from routes.inbox_scheduled_messages import router as inbox_scheduled_router
+app.include_router(inbox_scheduled_router)
 
 # ─── Static Files ──────────────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
@@ -85,11 +87,119 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 @app.on_event("startup")
 def startup_event():
     print(f"[{settings.APP_NAME}] Starting up...")
+
+    # ── Sync .env → frontend/.env.local ────────────────────────────────────
+    _sync_env_to_frontend()
+
+    # ── Sync .env token → whatsapp_accounts DB on every startup ────────────
+    _sync_env_token_to_db()
+
     if settings.ENABLE_SCHEDULER:
         start_scheduler()
         print("Background scheduler started.")
     else:
         print("Scheduler disabled. Set ENABLE_SCHEDULER=true in .env to enable.")
+
+
+def _sync_env_token_to_db():
+    """If .env has META credentials, upsert them into whatsapp_accounts table."""
+    token    = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN
+    phone_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID
+    waba_id  = settings.META_BUSINESS_ACCOUNT_ID or settings.WABA_ID
+
+    if not token or not phone_id:
+        return  # nothing to sync
+
+    from core.database import SessionLocal
+    from models.postgres_model import WhatsAppAccount
+    db = SessionLocal()
+    try:
+        account = db.query(WhatsAppAccount).filter(
+            WhatsAppAccount.organization_id == 1
+        ).first()
+        if account:
+            # Only update if the token actually changed — avoids unnecessary writes
+            if account.access_token != token:
+                account.access_token   = token
+                account.phone_number_id = phone_id
+                if waba_id:
+                    account.waba_id = waba_id
+                account.status = "ACTIVE"
+                db.commit()
+                print("[startup] Synced META_ACCESS_TOKEN from .env → whatsapp_accounts DB.")
+        else:
+            # No account yet — create one from .env so the app works out of the box
+            new_account = WhatsAppAccount(
+                organization_id=1,
+                waba_id=waba_id or "",
+                phone_number_id=phone_id,
+                access_token=token,
+                status="ACTIVE",
+                webhook_verified=False,
+            )
+            db.add(new_account)
+            db.commit()
+            print("[startup] Created whatsapp_accounts record from .env credentials.")
+    except Exception as e:
+        print(f"[startup] Warning: could not sync token to DB: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _sync_env_to_frontend():
+    """
+    Sync NEXT_PUBLIC_* values from backend/.env → frontend/.env.local
+    so changing backend/.env + restarting is all you need.
+    """
+    from pathlib import Path
+    import re
+
+    backend_env = Path(__file__).parent / ".env"
+    frontend_env = Path(__file__).parent.parent / "frontend" / ".env.local"
+
+    if not backend_env.exists():
+        return
+
+    # Read backend .env
+    content = backend_env.read_text(encoding="utf-8")
+
+    # Extract NEXT_PUBLIC_* values
+    next_vars: dict[str, str] = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if line.startswith("NEXT_PUBLIC_") and "=" in line:
+            key, _, val = line.partition("=")
+            next_vars[key.strip()] = val.strip()
+
+    if not next_vars:
+        return
+
+    # Also ensure NEXT_PUBLIC_API_BASE matches NEXT_PUBLIC_API_URL
+    if "NEXT_PUBLIC_API_URL" in next_vars and "NEXT_PUBLIC_API_BASE" not in next_vars:
+        next_vars["NEXT_PUBLIC_API_BASE"] = next_vars["NEXT_PUBLIC_API_URL"]
+
+    # Write / update frontend/.env.local
+    try:
+        existing: dict[str, str] = {}
+        if frontend_env.exists():
+            for line in frontend_env.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    existing[k.strip()] = v.strip()
+
+        # Merge — backend values override
+        existing.update(next_vars)
+
+        lines = ["# Auto-synced from backend/.env on startup — do not edit manually\n"]
+        for k, v in sorted(existing.items()):
+            lines.append(f"{k}={v}\n")
+
+        frontend_env.write_text("".join(lines), encoding="utf-8")
+        print(f"[startup] Synced {len(next_vars)} NEXT_PUBLIC vars → frontend/.env.local")
+    except Exception as e:
+        print(f"[startup] Warning: could not sync to frontend/.env.local: {e}")
 
 
 @app.on_event("shutdown")

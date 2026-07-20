@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <linearGradient id="g1" x1="5" y1="20" x2="95" y2="80" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#4338ca"/>
+      <stop offset="45%"  stop-color="#6d28d9"/>
+      <stop offset="100%" stop-color="#c026d3"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer C-arc: centre (46,52) radius 33, gap at top-right -->
+  <!-- Start ~320deg: 46+33*cos(-40)=71.3, 52+33*sin(-40)=30.8 -->
+  <!-- End   ~  15deg: 46+33*cos(15)=77.9, 52+33*sin(15)=60.5 -->
+  <path
+    d="M 71 31 A 33 33 0 1 0 78 61"
+    stroke="url(#g1)"
+    stroke-width="10"
+    stroke-linecap="round"
+    fill="none"
+  />
+
+  <!-- Left leg of A: bottom-left up to peak -->
+  <path
+    d="M 21 76 L 46 28"
+    stroke="url(#g1)"
+    stroke-width="9"
+    stroke-linecap="round"
+    fill="none"
+  />
+
+  <!-- Right leg of A down to bottom (same baseline) -->
+  <path
+    d="M 46 28 L 65 76"
+    stroke="url(#g1)"
+    stroke-width="9"
+    stroke-linecap="round"
+    fill="none"
+  />
+
+  <!-- Dot in the gap at top-right -->
+  <circle cx="75" cy="26" r="5.5" fill="url(#g1)"/>
+</svg>

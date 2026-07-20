@@ -35,13 +35,36 @@ def _get_meta_service() -> MetaWhatsAppService:
 @router.post("/send")
 def send_message(data: MessageRequest, request: Request):
     db = SessionLocal()
-    svc = _get_meta_service()
-    if not svc.access_token or not svc.phone_number_id:
-        return {
-            "success": False,
-            "error": "WhatsApp send credentials are not configured. Set META_ACCESS_TOKEN and META_WHATSAPP_PHONE_NUMBER_ID.",
-        }
     try:
+        # ── Resolve credentials: DB (whatsapp_accounts) takes priority over .env ──
+        # This ensures the Settings page "Update Connection" is always effective.
+        from models.postgres_model import WhatsAppAccount as WAAccount
+        try:
+            org_header = request.headers.get("X-Organization-Id")
+            org_id_for_lookup = int(org_header) if org_header else 1
+        except Exception:
+            org_id_for_lookup = 1
+
+        db_account = db.query(WAAccount).filter(
+            WAAccount.organization_id == org_id_for_lookup
+        ).first()
+
+        if db_account and db_account.access_token and db_account.phone_number_id:
+            resolved_token    = db_account.access_token
+            resolved_phone_id = db_account.phone_number_id
+        else:
+            # Fall back to .env credentials
+            resolved_token    = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN or ""
+            resolved_phone_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID or ""
+
+        if not resolved_token or not resolved_phone_id:
+            return {
+                "success": False,
+                "error": "WhatsApp send credentials are not configured. Go to Settings → Configuration to connect your account.",
+            }
+
+        svc = MetaWhatsAppService(resolved_token, resolved_phone_id)
+
         # Look up template language from DB — fall back to "en_US" if not found
         from models.postgres_model import Template
         tmpl = db.query(Template).filter(
@@ -62,13 +85,7 @@ def send_message(data: MessageRequest, request: Request):
                 "meta_response": result,
             }
 
-        # Record in MessageLog
-        # Determine org from header if provided, else fallback to 1
-        try:
-            org_header = request.headers.get('X-Organization-Id')
-            org_id = int(org_header) if org_header else 1
-        except Exception:
-            org_id = 1
+        org_id = org_id_for_lookup
 
         msg_log = MessageLog(
             message_id=(result.get('id') if isinstance(result, dict) else None),
@@ -145,6 +162,17 @@ def send_message(data: MessageRequest, request: Request):
             db.commit()
 
         # Save template message in inbox messages
+        # ── Resolve template body for display ──────────────────────────────
+        template_body = data.template_name  # safe fallback
+        try:
+            tmpl_body_row = db.query(Template).filter(
+                Template.template_name == data.template_name
+            ).order_by(Template.id.desc()).first()
+            if tmpl_body_row and tmpl_body_row.template_body:
+                template_body = tmpl_body_row.template_body
+        except Exception:
+            pass
+
         meta_msg_id = result.get("messages", [{}])[0].get("id") if isinstance(result, dict) else None
         inbox_msg = InboxMessage(
             conversation_id=inbox_conv.id,
@@ -152,23 +180,37 @@ def send_message(data: MessageRequest, request: Request):
             sender_type="AGENT",
             sender_id=1,
             message_type="TEMPLATE",
-            content=data.template_name,
+            content=template_body,   # ← full body, not just the name
             status="SENT",
         )
         db.add(inbox_msg)
+
+        # Also update conversation last_message_preview and set PENDING
+        inbox_conv.last_message_at = datetime.utcnow()
+        inbox_conv.status = "PENDING"
         db.commit()
         db.refresh(inbox_msg)
 
-        # Broadcast new message to org clients
+        # Broadcast new message to org clients (send full body so chat shows it instantly)
         try:
             loop = asyncio.get_event_loop()
             loop.create_task(manager.broadcast_to_org(str(org_id), {
                 "type": "new_message",
                 "conversation_id": inbox_conv.id,
                 "message": {
-                    "id": inbox_msg.id,
-                    "content": inbox_msg.content,
+                    "id": str(inbox_msg.id),
+                    "conversation_id": str(inbox_conv.id),
+                    "meta_message_id": inbox_msg.meta_message_id,
                     "sender_type": inbox_msg.sender_type,
+                    "sender_id": str(inbox_msg.sender_id) if inbox_msg.sender_id else None,
+                    "message_type": inbox_msg.message_type,
+                    "content": template_body,
+                    "caption": None,
+                    "status": inbox_msg.status,
+                    "is_deleted": False,
+                    "reply_to_message_id": None,
+                    "media_files": [],
+                    "reactions": [],
                     "created_at": inbox_msg.created_at.isoformat() + "Z" if inbox_msg.created_at else None,
                 }
             }))
@@ -181,6 +223,22 @@ def send_message(data: MessageRequest, request: Request):
             "conversation_id": str(inbox_conv.id),
             "inbox_conversation_id": str(inbox_conv.id),
             "message_id": str(inbox_msg.id),
+            "message": {
+                "id": str(inbox_msg.id),
+                "conversation_id": str(inbox_conv.id),
+                "meta_message_id": inbox_msg.meta_message_id,
+                "sender_type": "AGENT",
+                "sender_id": "1",
+                "message_type": "TEMPLATE",
+                "content": template_body,
+                "caption": None,
+                "status": "SENT",
+                "is_deleted": False,
+                "reply_to_message_id": None,
+                "media_files": [],
+                "reactions": [],
+                "created_at": inbox_msg.created_at.isoformat() + "Z" if inbox_msg.created_at else None,
+            },
         }
     except Exception as e:
         db.rollback()
@@ -371,8 +429,23 @@ def connect_whatsapp(payload: WhatsAppConnectRequest, request: Request):
         db.close()
 
 
-@router.get("/account")
-def get_account(request: Request):
+@router.get("/env-credentials")
+def get_env_credentials():
+    """
+    Returns the WhatsApp credentials currently set in .env
+    so the Settings page can auto-populate when .env is updated.
+    """
+    token = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN or ""
+    phone_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID or ""
+    waba_id = settings.META_BUSINESS_ACCOUNT_ID or settings.WABA_ID or ""
+
+    return {
+        "waba_id": waba_id,
+        "phone_number_id": phone_id,
+        "access_token": token,          # full token — used to auto-fill the Settings form
+        "has_token": bool(token),
+        "has_phone_id": bool(phone_id),
+    }
     db = SessionLocal()
     try:
         try:

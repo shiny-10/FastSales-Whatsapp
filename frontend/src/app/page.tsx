@@ -5,7 +5,6 @@ import Link from "next/link";
 import Messagecharts from "../components/charts/messagecharts";
 import StatsCard from "../components/StatsCard";
 import TemplateDonutChart from "../components/charts/TemplateDonutChart";
-import CampaignsTable from "../components/CampaignsTable";
 import {
   getDashboardSummary,
   getDashboardOverview,
@@ -13,10 +12,16 @@ import {
   getTemplateOverview,
 } from "../services/dashboardService";
 import {
-  Users, MessageSquare, FileText, Megaphone,
-  ArrowRight, Activity, CheckCircle2, Send,
-  Plus, Zap,
+  Users, MessageSquare, FileText, Megaphone, Send,
+  CheckCircle2, Eye, XCircle, Clock,
 } from "lucide-react";
+
+const card = {
+  background: "#ffffff",
+  border: "1px solid #ece9f8",
+  borderRadius: "16px",
+  boxShadow: "0 1px 6px rgba(100,80,200,0.07)",
+};
 
 export default function Home() {
   const [summary, setSummary] = useState({
@@ -29,7 +34,6 @@ export default function Home() {
     read: 0,
     failed: 0,
   });
-  const [campaigns, setCampaigns] = useState<any[]>([]);
   const [templateOverview, setTemplateOverview] = useState({
     approved: 0, pending: 0, rejected: 0, disabled: 0,
   });
@@ -38,7 +42,7 @@ export default function Home() {
     let alive = true;
     (async () => {
       try {
-        const [d, , c, t] = await Promise.all([
+        const [d, , , t] = await Promise.all([
           getDashboardSummary(),
           getDashboardOverview(),
           getCampaigns(),
@@ -46,7 +50,6 @@ export default function Home() {
         ]);
         if (!alive) return;
         setSummary(d);
-        setCampaigns(Array.isArray(c) ? c : []);
         setTemplateOverview(t);
       } catch { /* silent */ }
     })();
@@ -58,7 +61,7 @@ export default function Home() {
       title: "Total Contacts",
       value: summary.total_contacts,
       change: "+12.5% this month",
-      icon: <Users size={20} />,
+      icon: <Users size={22} />,
       gradient: "linear-gradient(135deg,#7c3aed,#4f46e5)",
       glowClass: "ring-violet",
       trend: "up" as const,
@@ -67,7 +70,7 @@ export default function Home() {
       title: "Messages Sent",
       value: summary.total_messages,
       change: "+18.6% this month",
-      icon: <MessageSquare size={20} />,
+      icon: <Send size={22} />,
       gradient: "linear-gradient(135deg,#06b6d4,#0284c7)",
       glowClass: "ring-cyan",
       trend: "up" as const,
@@ -76,56 +79,81 @@ export default function Home() {
       title: "Active Templates",
       value: summary.total_templates,
       change: "+8.3% this month",
-      icon: <FileText size={20} />,
-      gradient: "linear-gradient(135deg,#10b981,#059669)",
-      glowClass: "ring-emerald",
+      icon: <FileText size={22} />,
+      gradient: "linear-gradient(135deg,#7c3aed,#4f46e5)",
+      glowClass: "ring-violet",
       trend: "up" as const,
     },
     {
       title: "Campaigns",
       value: summary.total_campaigns,
       change: "+14.7% this month",
-      icon: <Megaphone size={20} />,
-      gradient: "linear-gradient(135deg,#f43f5e,#e11d48)",
-      glowClass: "ring-rose",
+      icon: <Megaphone size={22} />,
+      gradient: "linear-gradient(135deg,#7c3aed,#4f46e5)",
+      glowClass: "ring-violet",
       trend: "up" as const,
     },
   ];
 
-  const quickActions = [
-    { label: "New Contact",   href: "/contacts",  icon: Users,        color: "#7c3aed" },
-    { label: "New Template",  href: "/templates", icon: FileText,     color: "#06b6d4" },
-    { label: "New Campaign",  href: "/campaigns", icon: Megaphone,    color: "#10b981" },
-    { label: "Open Inbox",    href: "/whatsapp",  icon: MessageSquare,color: "#25d366" },
-  ];
-
-  const activity = [
-    { icon: "✅", label: 'Campaign "Order Update" completed',       time: "2m ago",  color: "#10b981" },
-    { icon: "💬", label: "Message delivered to +91 98765 43210",   time: "5m ago",  color: "#06b6d4" },
-    { icon: "📝", label: 'Template "order_confirm_v2" approved',    time: "15m ago", color: "#a78bfa" },
-    { icon: "➕", label: "New contact added — Rahul Sharma",        time: "30m ago", color: "#f59e0b" },
-    { icon: "📊", label: "Weekly report generated",                 time: "1h ago",  color: "#f43f5e" },
+  // Bottom 4 metric cards — exactly matching the image
+  const metrics = [
+    {
+      label: "Delivered",
+      value: summary.delivered,
+      icon: <CheckCircle2 size={22} />,
+      iconColor: "#10b981",
+      iconBg: "rgba(16,185,129,0.12)",
+      iconBorder: "rgba(16,185,129,0.35)",
+      cardBg: "#f0faf5",
+    },
+    {
+      label: "Read",
+      value: summary.read,
+      icon: <Eye size={22} />,
+      iconColor: "#7c3aed",
+      iconBg: "rgba(124,58,237,0.10)",
+      iconBorder: "rgba(124,58,237,0.30)",
+      cardBg: "#f5f3ff",
+    },
+    {
+      label: "Failed",
+      value: summary.failed,
+      icon: <XCircle size={22} />,
+      iconColor: "#f43f5e",
+      iconBg: "rgba(244,63,94,0.10)",
+      iconBorder: "rgba(244,63,94,0.30)",
+      cardBg: "#fff5f7",
+    },
+    {
+      label: "Pending",
+      value: summary.sent,
+      icon: <Clock size={22} />,
+      iconColor: "#f59e0b",
+      iconBg: "rgba(245,158,11,0.10)",
+      iconBorder: "rgba(245,158,11,0.30)",
+      cardBg: "#fffbf0",
+    },
   ];
 
   return (
-    <div className="min-h-screen p-6 space-y-6 animate-fade-up">
+    <div className="min-h-screen space-y-5 animate-fade-up" style={{ padding: "24px" }}>
 
-      {/* ── Page header ── */}
+      {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">
-            Good morning, Admin 👋
+          <h1 className="text-[22px] font-bold" style={{ color: "#1a1040" }}>
+            {(() => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; })()}, Admin
           </h1>
-          <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.45)" }}>
+          <p className="text-sm mt-0.5" style={{ color: "#9390b5" }}>
             Here's what's happening with your WhatsApp CRM today.
           </p>
         </div>
-
         <Link
           href="/whatsapp"
-          className="btn-glow flex items-center gap-2 text-sm"
+          className="flex items-center gap-2 text-sm font-semibold rounded-xl px-5 py-2.5 text-white"
+          style={{ background: "linear-gradient(90deg,#7c3aed,#4f46e5)", boxShadow: "0 4px 14px rgba(124,58,237,0.35)" }}
         >
-          <Zap size={15} />
+          <Send size={14} />
           Open Inbox
         </Link>
       </div>
@@ -137,178 +165,61 @@ export default function Home() {
         ))}
       </div>
 
-      {/* ── Main content: chart + side panel ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+      {/* ── Chart row: Message Performance + Template Overview ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
 
-        {/* Chart + table */}
-        <div className="xl:col-span-8 space-y-5">
-
-          {/* Message performance chart */}
-          <div
-            className="rounded-2xl p-5"
-            style={{
-              background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
-              border: "1px solid rgba(255,255,255,0.07)",
-            }}
-          >
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h2 className="font-semibold text-[15px] text-white">Message Performance</h2>
-                <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>This month</p>
-              </div>
-              <div className="flex items-center gap-4 text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
-                <span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-violet-400" />Sent</span>
-                <span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-cyan-400" />Delivered</span>
-                <span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />Read</span>
-              </div>
-            </div>
-            <div className="h-64">
-              <Messagecharts summary={summary} />
-            </div>
+        {/* Message Performance chart */}
+        <div className="xl:col-span-7" style={card}>
+          <div className="px-5 pt-5 pb-2">
+            <h2 className="font-semibold text-[15px]" style={{ color: "#1a1040" }}>Message Performance</h2>
+            <p className="text-xs mt-0.5" style={{ color: "#9390b5" }}>Last 6 months</p>
           </div>
-
-          {/* Delivery metrics strip */}
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { label: "Delivered", value: summary.delivered, icon: <CheckCircle2 size={16} />, color: "#10b981", pct: summary.total_messages ? Math.round((summary.delivered / summary.total_messages) * 100) : 0 },
-              { label: "Read",      value: summary.read,      icon: <Activity      size={16} />, color: "#06b6d4", pct: summary.total_messages ? Math.round((summary.read      / summary.total_messages) * 100) : 0 },
-              { label: "Failed",    value: summary.failed,    icon: <Send          size={16} />, color: "#f43f5e", pct: summary.total_messages ? Math.round((summary.failed    / summary.total_messages) * 100) : 0 },
-            ].map((m) => (
-              <div
-                key={m.label}
-                className="rounded-2xl p-4"
-                style={{
-                  background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
-                  border: "1px solid rgba(255,255,255,0.07)",
-                }}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.4)" }}>{m.label}</span>
-                  <span style={{ color: m.color }}>{m.icon}</span>
-                </div>
-                <p className="text-2xl font-bold text-white tabular-nums">{m.value.toLocaleString()}</p>
-                {/* Progress bar */}
-                <div className="mt-3 h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
-                  <div
-                    className="h-full rounded-full transition-all duration-700"
-                    style={{ width: `${m.pct}%`, background: m.color }}
-                  />
-                </div>
-                <p className="text-xs mt-1.5" style={{ color: "rgba(255,255,255,0.35)" }}>{m.pct}% of total</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Recent campaigns */}
-          <div
-            className="rounded-2xl"
-            style={{
-              background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
-              border: "1px solid rgba(255,255,255,0.07)",
-            }}
-          >
-            <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
-              <h3 className="font-semibold text-[15px] text-white">Recent Campaigns</h3>
-              <Link
-                href="/campaigns"
-                className="flex items-center gap-1 text-xs font-medium transition-colors"
-                style={{ color: "rgba(124,58,237,0.9)" }}
-              >
-                View all <ArrowRight size={12} />
-              </Link>
-            </div>
-            <CampaignsTable campaigns={campaigns.slice(0, 5)} />
+          <div className="px-4 pb-4" style={{ height: 300 }}>
+            <Messagecharts summary={{ ...summary, total_campaigns: summary.total_campaigns }} />
           </div>
         </div>
 
-        {/* Right column */}
-        <div className="xl:col-span-4 space-y-5">
-
-          {/* Template overview */}
-          <div
-            className="rounded-2xl p-5"
-            style={{
-              background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
-              border: "1px solid rgba(255,255,255,0.07)",
-            }}
-          >
-            <h3 className="font-semibold text-[15px] text-white mb-4">Template Overview</h3>
-            <TemplateDonutChart data={templateOverview} />
-          </div>
-
-          {/* Quick actions */}
-          <div
-            className="rounded-2xl p-5"
-            style={{
-              background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
-              border: "1px solid rgba(255,255,255,0.07)",
-            }}
-          >
-            <h3 className="font-semibold text-[15px] text-white mb-4">Quick Actions</h3>
-            <div className="grid grid-cols-2 gap-3">
-              {quickActions.map((a) => {
-                const Icon = a.icon;
-                return (
-                  <Link
-                    key={a.label}
-                    href={a.href}
-                    className="flex flex-col items-center gap-2 py-4 rounded-xl transition-all hover:scale-105"
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid rgba(255,255,255,0.06)",
-                    }}
-                  >
-                    <div
-                      className="flex items-center justify-center w-10 h-10 rounded-xl"
-                      style={{ background: `${a.color}22` }}
-                    >
-                      <Icon size={18} style={{ color: a.color }} />
-                    </div>
-                    <span className="text-[12px] font-medium text-center" style={{ color: "rgba(255,255,255,0.7)" }}>
-                      {a.label}
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Recent activity */}
-          <div
-            className="rounded-2xl p-5"
-            style={{
-              background: "linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.015) 100%)",
-              border: "1px solid rgba(255,255,255,0.07)",
-            }}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-[15px] text-white">Recent Activity</h3>
-              <Link href="/activity" className="text-xs font-medium" style={{ color: "rgba(124,58,237,0.9)" }}>
-                See all
-              </Link>
-            </div>
-            <ul className="space-y-3">
-              {activity.map((a, i) => (
-                <li key={i} className="flex items-start gap-3">
-                  <span
-                    className="flex items-center justify-center w-8 h-8 rounded-full text-sm flex-shrink-0 mt-0.5"
-                    style={{ background: `${a.color}20` }}
-                  >
-                    {a.icon}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] leading-snug" style={{ color: "rgba(255,255,255,0.75)" }}>
-                      {a.label}
-                    </p>
-                    <p className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.3)" }}>{a.time}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-
+        {/* Template Overview donut */}
+        <div className="xl:col-span-5" style={{ ...card, padding: "20px", minHeight: "360px" }}>
+          <h2 className="font-semibold text-[15px] mb-4" style={{ color: "#1a1040" }}>Template Overview</h2>
+          <TemplateDonutChart data={templateOverview} />
         </div>
       </div>
+
+      {/* ── Bottom metrics row ── */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        {metrics.map((m) => (
+          <div
+            key={m.label}
+            className="rounded-2xl p-4 flex items-center gap-4"
+            style={{
+              background: m.cardBg,
+              border: `1px solid ${m.iconBorder}`,
+              boxShadow: "0 1px 4px rgba(100,80,200,0.06)",
+            }}
+          >
+            {/* Circle icon */}
+            <div
+              className="flex items-center justify-center rounded-full flex-shrink-0"
+              style={{
+                width: 48, height: 48,
+                background: "#ffffff",
+                border: `2px solid ${m.iconBorder}`,
+                color: m.iconColor,
+              }}
+            >
+              {m.icon}
+            </div>
+            <div>
+              <p className="text-xs font-medium" style={{ color: "#9390b5" }}>{m.label}</p>
+              <p className="text-[26px] font-bold leading-none tabular-nums mt-0.5" style={{ color: "#1a1040" }}>
+                {m.value.toLocaleString()}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+
     </div>
   );
 }

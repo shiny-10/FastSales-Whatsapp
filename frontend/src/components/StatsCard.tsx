@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import { TrendingUp, TrendingDown } from "lucide-react";
 
 interface StatsCardProps {
   title: string;
@@ -19,55 +18,48 @@ export default function StatsCard({
   change,
   icon,
   gradient = "linear-gradient(135deg,#7c3aed,#4f46e5)",
-  glowClass = "ring-violet",
   trend = "up",
 }: StatsCardProps) {
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl p-5 hover-lift ${glowClass}`}
+      className="rounded-2xl p-5 flex items-center justify-between"
       style={{
-        background: "linear-gradient(145deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.015) 100%)",
-        border: "1px solid rgba(255,255,255,0.08)",
+        background: "#ffffff",
+        border: "1px solid #ece9f8",
+        boxShadow: "0 1px 6px rgba(100,80,200,0.07)",
       }}
     >
-      {/* Background glow blob */}
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: "#9390b5" }}>
+          {title}
+        </p>
+        <p className="text-[28px] font-bold leading-none tabular-nums" style={{ color: "#1a1040" }}>
+          {typeof value === "number" ? value.toLocaleString() : value}
+        </p>
+        {change && (
+          <p className="text-[11px] mt-2 font-medium" style={{ color: trend === "up" ? "#10b981" : "#f43f5e" }}>
+            {trend === "up" ? "↑" : "↓"} {change}
+          </p>
+        )}
+      </div>
+      {/* Icon — light tinted background, icon color matches gradient */}
       <div
-        className="absolute -right-6 -top-6 w-28 h-28 rounded-full opacity-20 blur-2xl pointer-events-none"
-        style={{ background: gradient }}
-      />
-
-      <div className="relative flex items-start justify-between">
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "rgba(255,255,255,0.4)" }}>
-            {title}
-          </p>
-          <p className="text-3xl font-bold text-white leading-none tabular-nums">
-            {typeof value === "number" ? value.toLocaleString() : value}
-          </p>
-          {change && (
-            <div className="flex items-center gap-1.5 mt-3">
-              {trend === "up" ? (
-                <TrendingUp size={13} style={{ color: "#10b981" }} />
-              ) : (
-                <TrendingDown size={13} style={{ color: "#f43f5e" }} />
-              )}
-              <span
-                className="text-xs font-medium"
-                style={{ color: trend === "up" ? "#10b981" : "#f43f5e" }}
-              >
-                {change}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Icon pill */}
-        <div
-          className="flex items-center justify-center w-11 h-11 rounded-xl text-white flex-shrink-0"
-          style={{ background: gradient, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}
-        >
+        className="flex items-center justify-center w-12 h-12 rounded-xl flex-shrink-0"
+        style={{
+          background: gradient.includes("06b6d4") ? "rgba(6,182,212,0.10)"
+            : gradient.includes("10b981") ? "rgba(16,185,129,0.10)"
+            : gradient.includes("f43f5e") ? "rgba(244,63,94,0.10)"
+            : "rgba(124,58,237,0.10)",
+        }}
+      >
+        <span style={{
+          color: gradient.includes("06b6d4") ? "#06b6d4"
+            : gradient.includes("10b981") ? "#10b981"
+            : gradient.includes("f43f5e") ? "#f43f5e"
+            : "#7c3aed",
+        }}>
           {icon}
-        </div>
+        </span>
       </div>
     </div>
   );

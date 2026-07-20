@@ -22,8 +22,12 @@ export const getDashboardMessages = async () => {
   return response.json();
 };
 
+export const getMessageAnalytics = async () => {
+  const response = await fetch(`${API_URL}/analytics/messages`);
+  return response.json();
+};
+
 export const getTemplateOverview = async () => {
   const response = await fetch(`${API_URL}/template-overview`);
-
   return response.json();
 };

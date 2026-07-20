@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCheck, Check, Clock, XCircle, CornerUpLeft,
-  Copy, Star, Trash2, Forward, Plus,
+  Copy, Star, Trash2, Forward, Plus, MapPin, ExternalLink,
 } from "lucide-react";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import { cn, formatMessageTime } from "@/lib/utils";
@@ -21,6 +21,7 @@ interface MessageBubbleProps {
   allMessages?: Message[];
   onReply?: (message: Message) => void;
   onDelete?: (messageId: string) => void;
+  onDeleteForMe?: (messageId: string) => void;
   selected?: boolean;
   onSelect?: (messageId: string, selected: boolean) => void;
   selectionMode?: boolean;
@@ -50,7 +51,100 @@ export function DeliveryIcon({ status }: { status: string }) {
   }
 }
 
+/** Parse location content: "📍 Name (lat, lng)" or "lat:X,lon:Y" */
+function parseLocation(content: string): { lat: number; lng: number; name: string; address: string } | null {
+  try {
+    // Format from our backend: "📍 Name (lat, lng)"
+    const match = content.match(/\((-?\d+\.?\d*),\s*(-?\d+\.?\d*)\)/);
+    if (match) {
+      const lat = parseFloat(match[1]);
+      const lng = parseFloat(match[2]);
+      const nameMatch = content.match(/📍\s*(.+?)\s*\(/);
+      const name = nameMatch ? nameMatch[1].trim() : "";
+      return { lat, lng, name, address: "" };
+    }
+    // Format from incoming webhook: "lat:X,lon:Y"
+    const legacyMatch = content.match(/lat:(-?\d+\.?\d*),lon:(-?\d+\.?\d*)/);
+    if (legacyMatch) {
+      return { lat: parseFloat(legacyMatch[1]), lng: parseFloat(legacyMatch[2]), name: "", address: "" };
+    }
+    return null;
+  } catch { return null; }
+}
+
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+
+function LocationBubble({ content, isAgent }: { content: string; isAgent: boolean }) {
+  const loc = parseLocation(content);
+  if (!loc) return (
+    <p className="text-sm" style={{ color: isAgent ? "#ffffff" : "#1a1d23" }}>{content}</p>
+  );
+
+  const { lat, lng, name } = loc;
+  // Google Static Maps thumbnail — no API key needed for basic usage
+  const mapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=280x160&markers=color:red%7C${lat},${lng}&scale=2`;
+  const mapsLink = `https://www.google.com/maps?q=${lat},${lng}`;
+
+  return (
+    <a
+      href={mapsLink}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block overflow-hidden rounded-xl"
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        width: "240px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+        textDecoration: "none",
+      }}
+    >
+      {/* Map thumbnail */}
+      <div style={{ position: "relative", width: "240px", height: "140px", background: "#e8e8e8", overflow: "hidden" }}>
+        {/* Use OpenStreetMap tiles via a static-map-style iframe approach */}
+        <img
+          src={`https://static-maps.yandex.ru/1.x/?lang=en_US&ll=${lng},${lat}&z=15&l=map&size=240,140&pt=${lng},${lat},pm2rdm`}
+          alt="Location"
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          onError={(e) => {
+            // Fallback: show a styled placeholder with pin
+            (e.target as HTMLImageElement).style.display = "none";
+            (e.target as HTMLImageElement).parentElement!.style.background = isAgent
+              ? "rgba(255,255,255,0.15)" : "#f0eeff";
+          }}
+        />
+        {/* Red pin overlay */}
+        <div style={{
+          position: "absolute", top: "50%", left: "50%",
+          transform: "translate(-50%, -100%)",
+          filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.4))",
+        }}>
+          <MapPin className="h-7 w-7" style={{ color: "#ef4444", fill: "#ef4444" }} />
+        </div>
+      </div>
+
+      {/* Place name + open link */}
+      <div
+        style={{
+          padding: "8px 12px",
+          background: isAgent ? "rgba(255,255,255,0.12)" : "#f9f8ff",
+          borderTop: `1px solid ${isAgent ? "rgba(255,255,255,0.15)" : "#e8eaf0"}`,
+        }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold truncate" style={{ color: isAgent ? "#ffffff" : "#1a1040" }}>
+              {name || "Location"}
+            </p>
+            <p className="text-[10px] mt-0.5" style={{ color: isAgent ? "rgba(255,255,255,0.6)" : "#9498b0" }}>
+              {lat.toFixed(4)}, {lng.toFixed(4)}
+            </p>
+          </div>
+          <ExternalLink className="h-3.5 w-3.5 flex-shrink-0" style={{ color: isAgent ? "rgba(255,255,255,0.6)" : "#7c3aed" }} />
+        </div>
+      </div>
+    </a>
+  );
+}
 
 export function MessageBubble({
   message,
@@ -59,6 +153,7 @@ export function MessageBubble({
   allMessages = [],
   onReply,
   onDelete,
+  onDeleteForMe,
   selected = false,
   onSelect,
   selectionMode = false,
@@ -67,6 +162,7 @@ export function MessageBubble({
   const [contextOpen, setContextOpen] = useState(false);
   const [contextPos, setContextPos] = useState({ x: 0, y: 0 });
   const [showFullPicker, setShowFullPicker] = useState(false);
+  const [showDeleteMenu, setShowDeleteMenu] = useState(false);
   const [starred, setStarred] = useState(false);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const contextRef = useRef<HTMLDivElement>(null);
@@ -95,10 +191,11 @@ export function MessageBubble({
 
   const openContext = (e: React.MouseEvent) => {
     if (selectionMode) {
-      // In selection mode, click toggles selection
       onSelect?.(String(message.id), !selected);
       return;
     }
+    // Don't open context menu if clicking a link inside the bubble
+    if ((e.target as HTMLElement).closest("a")) return;
     e.preventDefault();
     const rect = bubbleRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -123,6 +220,7 @@ export function MessageBubble({
       if (contextRef.current && !contextRef.current.contains(e.target as Node)) {
         setContextOpen(false);
         setShowFullPicker(false);
+        setShowDeleteMenu(false);
       }
     };
     document.addEventListener("mousedown", handler);
@@ -136,6 +234,18 @@ export function MessageBubble({
 
   const handleDelete = () => {
     setContextOpen(false);
+    onDelete?.(String(message.id));
+  };
+
+  const handleDeleteForMe = () => {
+    setContextOpen(false);
+    setShowDeleteMenu(false);
+    onDeleteForMe?.(String(message.id));
+  };
+
+  const handleDeleteForEveryone = () => {
+    setContextOpen(false);
+    setShowDeleteMenu(false);
     onDelete?.(String(message.id));
   };
 
@@ -199,7 +309,12 @@ export function MessageBubble({
             onContextMenu={openContext}
             onClick={selectionMode ? handleBubbleClick : openContext}
             className={cn(
-              "relative px-4 py-2.5 cursor-pointer select-none",
+              "relative cursor-pointer select-none",
+              // For media-only messages, remove padding so content fills the bubble
+              (message.message_type === "DOCUMENT" || message.message_type === "AUDIO" || message.message_type === "VIDEO")
+                && !message.content && (message.media_files ?? []).length > 0
+                ? "overflow-hidden"
+                : "px-4 py-2.5",
               isAgent ? "rounded-2xl rounded-br-sm" : "rounded-2xl rounded-bl-sm",
               highlight && !isCurrentMatch && "ring-2 ring-yellow-300"
             )}
@@ -246,11 +361,13 @@ export function MessageBubble({
               </div>
             )}
 
-            {/* Text */}
+            {/* Text / Location / Contact */}
             {message.is_deleted ? (
               <span className="italic text-sm flex items-center gap-1" style={{ color: isAgent ? "rgba(255,255,255,0.5)" : "#b0b3c6" }}>
                 <XCircle className="h-3.5 w-3.5" /> This message was deleted
               </span>
+            ) : message.message_type === "LOCATION" && message.content ? (
+              <LocationBubble content={message.content} isAgent={isAgent} />
             ) : (
               message.content && (
                 <p className="text-sm whitespace-pre-wrap break-words leading-relaxed pr-10"
@@ -340,11 +457,10 @@ export function MessageBubble({
                 {/* Actions */}
                 <div className="py-1">
                   {[
-                    { icon: CornerUpLeft, label: "Reply",    action: () => { onReply?.(message); setContextOpen(false); }, danger: false },
-                    { icon: Copy,         label: "Copy",     action: handleCopy,              danger: false },
+                    { icon: CornerUpLeft, label: "Reply",  action: () => { onReply?.(message); setContextOpen(false); }, danger: false },
+                    { icon: Copy,         label: "Copy",   action: handleCopy,                                           danger: false },
                     { icon: Star,         label: starred ? "Unstar" : "Star", action: () => { setStarred(s => !s); setContextOpen(false); }, danger: false },
-                    { icon: Forward,      label: "Select",   action: handleSelectFromMenu,    danger: false },
-                    { icon: Trash2,       label: "Delete",   action: handleDelete,            danger: true },
+                    { icon: Forward,      label: "Select", action: handleSelectFromMenu,                                  danger: false },
                   ].map(({ icon: Icon, label, action, danger }) => (
                     <button key={label} type="button" onClick={action}
                       className="flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors"
@@ -355,6 +471,75 @@ export function MessageBubble({
                       {label}
                     </button>
                   ))}
+
+                  {/* Delete — expands into submenu */}
+                  {!showDeleteMenu ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteMenu(true)}
+                      className="flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors"
+                      style={{ color: "#ef4444" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "#fff5f5")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <Trash2 className="h-4 w-4 shrink-0" />
+                      Delete
+                      <svg className="ml-auto h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+                      </svg>
+                    </button>
+                  ) : (
+                    <>
+                      {/* Back row */}
+                      <button
+                        type="button"
+                        onClick={() => setShowDeleteMenu(false)}
+                        className="flex w-full items-center gap-2 px-4 py-2 text-xs transition-colors"
+                        style={{ color: "#9498b0" }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "#f5f6fa")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m15 18-6-6 6-6" />
+                        </svg>
+                        Back
+                      </button>
+
+                      {/* Delete for me */}
+                      <button
+                        type="button"
+                        onClick={handleDeleteForMe}
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors"
+                        style={{ color: "#ef4444" }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "#fff5f5")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <Trash2 className="h-4 w-4 shrink-0" />
+                        <span>
+                          <span className="block font-medium">Delete for me</span>
+                          <span className="block text-[11px]" style={{ color: "#b0b3c6" }}>Only removed from your view</span>
+                        </span>
+                      </button>
+
+                      {/* Delete for everyone — only for agent's own messages */}
+                      {isAgent && (
+                        <button
+                          type="button"
+                          onClick={handleDeleteForEveryone}
+                          className="flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors"
+                          style={{ color: "#ef4444" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = "#fff5f5")}
+                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                        >
+                          <Trash2 className="h-4 w-4 shrink-0" />
+                          <span>
+                            <span className="block font-medium">Delete for everyone</span>
+                            <span className="block text-[11px]" style={{ color: "#b0b3c6" }}>Removed for all participants</span>
+                          </span>
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               </>
             ) : (

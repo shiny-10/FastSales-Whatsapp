@@ -349,6 +349,7 @@ class WhatsAppInboxConversation(Base):
     is_archived = Column(Boolean, default=False, nullable=False, index=True)
     unread_count = Column(Integer, default=0, nullable=False)
     last_message_at = Column(DateTime, nullable=True)
+    customer_last_seen_at = Column(DateTime, nullable=True)  # when customer last sent a message
     metadata_json = Column("metadata", JSON_TYPE, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

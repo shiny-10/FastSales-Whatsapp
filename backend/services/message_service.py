@@ -139,6 +139,8 @@ class MessageService:
             self.conv_repo.update(
                 request.conversation_id,
                 last_message_at=datetime.utcnow(),
+                # Agent sent a message → waiting for customer to read/reply
+                status="PENDING",
             )
             return message
         except Exception as e:
@@ -191,6 +193,7 @@ class MessageService:
         self.conv_repo.update(
             request.conversation_id,
             last_message_at=datetime.utcnow(),
+            status="PENDING",
         )
         return message
 
@@ -234,6 +237,7 @@ class MessageService:
         self.conv_repo.update(
             request.conversation_id,
             last_message_at=datetime.utcnow(),
+            status="PENDING",
         )
         return message
 
@@ -274,6 +278,7 @@ class MessageService:
         self.conv_repo.update(
             request.conversation_id,
             last_message_at=datetime.utcnow(),
+            status="PENDING",
         )
         return message
 
@@ -319,6 +324,7 @@ class MessageService:
         self.conv_repo.update(
             request.conversation_id,
             last_message_at=datetime.utcnow(),
+            status="PENDING",
         )
         return message
 
@@ -329,9 +335,37 @@ class MessageService:
         phone_number_id: str,
         access_token: str,
     ) -> WhatsAppInboxMessage:
+        from models.postgres_model import Template
+
         conv = self.conv_repo.get_by_id(request.conversation_id)
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
+
+        # ── Resolve template body from local DB ──────────────────────────────
+        # Look up by template_name so the message content shows the full body,
+        # not just the template name string.
+        template_body: str = request.template_name  # fallback
+        try:
+            local_template = (
+                self.db.query(Template)
+                .filter(Template.template_name == request.template_name)
+                .order_by(Template.id.desc())
+                .first()
+            )
+            if local_template and local_template.template_body:
+                template_body = local_template.template_body
+                # Replace {{1}}, {{2}} … with the provided variable values
+                if request.components:
+                    for comp in request.components:
+                        if comp.get("type") == "body":
+                            params = comp.get("parameters", [])
+                            for idx, param in enumerate(params, start=1):
+                                placeholder = "{{" + str(idx) + "}}"
+                                template_body = template_body.replace(
+                                    placeholder, param.get("text", "")
+                                )
+        except Exception:
+            pass  # If DB lookup fails keep the fallback
 
         template_obj: dict = {
             "name": request.template_name,
@@ -355,12 +389,13 @@ class MessageService:
             sender_type="AGENT",
             sender_id=agent_id,
             message_type="TEMPLATE",
-            content=request.template_name,
+            content=template_body,   # ← full body text, not just the template name
             status="SENT",
         )
         self.conv_repo.update(
             request.conversation_id,
             last_message_at=datetime.utcnow(),
+            status="PENDING",
         )
         return message
 

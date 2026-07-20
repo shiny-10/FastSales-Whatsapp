@@ -177,36 +177,85 @@ def import_contacts(file: UploadFile = File(...)):
     db = SessionLocal()
 
     try:
-
         if file.filename.endswith(".csv"):
             df = pd.read_csv(file.file)
-
         elif file.filename.endswith(".xlsx"):
             df = pd.read_excel(file.file)
-
         else:
             return {
                 "success": False,
                 "message": "Only CSV and XLSX files are supported"
             }
 
+        # ── Normalize column names ─────────────────────────────────────────
+        # Strip whitespace and lowercase all column names so we handle:
+        # "Phone Number", "phone_number", "Phone", "mobile", "PHONE" etc.
+        df.columns = df.columns.str.strip().str.lower().str.replace(r"[\s\-]+", "_", regex=True)
+
+        # Flexible column aliases → canonical name
+        PHONE_ALIASES = {"phone_number", "phone", "mobile", "mobile_number", "contact", "number", "tel", "telephone"}
+        NAME_ALIASES  = {"name", "full_name", "contact_name", "customer_name", "first_name"}
+        EMAIL_ALIASES = {"email", "email_address", "mail"}
+
+        def find_col(df_cols: list, aliases: set) -> str | None:
+            for col in df_cols:
+                if col in aliases:
+                    return col
+            return None
+
+        cols = list(df.columns)
+        phone_col = find_col(cols, PHONE_ALIASES)
+        name_col  = find_col(cols, NAME_ALIASES)
+        email_col = find_col(cols, EMAIL_ALIASES)
+        tag_col   = find_col(cols, {"tag", "tags", "label"})
+        order_col = find_col(cols, {"order_id", "order", "order_number"})
+
+        if not phone_col:
+            return {
+                "success": False,
+                "message": (
+                    f"Could not find a phone number column. "
+                    f"Your CSV has: {', '.join(cols)}. "
+                    f"Please name the column: phone_number, phone, or mobile."
+                )
+            }
+
+        if not name_col:
+            return {
+                "success": False,
+                "message": (
+                    f"Could not find a name column. "
+                    f"Your CSV has: {', '.join(cols)}. "
+                    f"Please name the column: name or full_name."
+                )
+            }
+
         count = 0
+        skipped = 0
 
         for _, row in df.iterrows():
+            phone_val = str(row[phone_col]).strip() if pd.notna(row[phone_col]) else ""
+            name_val  = str(row[name_col]).strip()  if pd.notna(row[name_col])  else ""
 
-            existing_contact = db.query(Contact).filter(
-                Contact.phone_number == str(row["phone_number"])
+            if not phone_val or phone_val.lower() in ("nan", "none", ""):
+                skipped += 1
+                continue
+
+            # Skip duplicates
+            existing = db.query(Contact).filter(
+                Contact.phone_number == phone_val
             ).first()
-
-            if existing_contact:
+            if existing:
+                skipped += 1
                 continue
 
             contact = Contact(
-                name=row["name"],
-                phone_number=str(row["phone_number"]),
-                email=row.get("email"),
-                tag=row.get("tag"),
-                order_id=row.get("order_id")
+                name=name_val or phone_val,
+                phone_number=phone_val,
+                email=str(row[email_col]).strip() if email_col and pd.notna(row[email_col]) else None,
+                tag=str(row[tag_col]).strip()     if tag_col   and pd.notna(row[tag_col])   else None,
+                order_id=str(row[order_col]).strip() if order_col and pd.notna(row[order_col]) else None,
+                status="Active",
             )
 
             db.add(contact)
@@ -216,12 +265,13 @@ def import_contacts(file: UploadFile = File(...)):
 
         return {
             "success": True,
-            "imported_contacts": count
+            "message": f"Imported {count} contacts" + (f" ({skipped} skipped)" if skipped else ""),
+            "imported_contacts": count,
+            "skipped": skipped,
         }
 
     except Exception as e:
         db.rollback()
-
         return {
             "success": False,
             "error": str(e)

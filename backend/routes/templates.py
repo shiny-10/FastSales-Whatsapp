@@ -259,114 +259,93 @@ def get_recent_activities(limit: int = 5):
 # ── POST /resubmit/{template_id} — re-send a locally saved template to Meta ──
 @router.post("/resubmit/{template_id}")
 def resubmit_template(template_id: int):
-    """
-    Re-submit a template to Meta.  Normalizes the stored language value to a
-    valid Meta locale code before submission and persists the corrected value
-    back to the DB so future submissions don't hit the same language error.
-    """
     from services.template_service import normalize_language
 
     db = SessionLocal()
-    template = db.query(Template).filter(Template.id == template_id).first()
-    if not template:
-        db.close()
-        return {"success": False, "message": "Template not found"}
-
     try:
-        # Normalize the stored language — fixes templates saved with values like
-        # "English", "en", "hindi" etc. that Meta doesn't accept.
+        template = db.query(Template).filter(Template.id == template_id).first()
+        if not template:
+            return {"success": False, "message": "Template not found"}
+
         normalized_lang = normalize_language(template.language or "en_US")
         print(f"[resubmit] template='{template.template_name}' stored_lang='{template.language}' → sending='{normalized_lang}'")
 
         meta_result = meta_template_service.create_template(
             template_name=template.template_name,
             category=template.category,
-            language=normalized_lang,   # always send the clean locale code
+            language=normalized_lang,
             body=template.template_body,
         )
+
         if meta_result.get("success"):
             template.meta_template_id = str(meta_result.get("id"))
             template.meta_template_name = template.template_name
             template.meta_status = meta_result.get("status", "PENDING")
-            # Persist the corrected language so the DB value is clean going forward
             template.language = normalized_lang
             db.commit()
-            log_activity(
-                db, action="resubmitted",
-                template_id=template.id, template_name=template.template_name,
-                status=template.meta_status, organization_id=template.organization_id
-            )
-            db.close()
-            return {"success": True, "message": f"Template submitted to Meta. Status: {template.meta_status}"}
+            # Capture values before session closes
+            t_id = template.id
+            t_name = template.template_name
+            t_status = template.meta_status
+            t_org = template.organization_id
+            log_activity(db, action="resubmitted", template_id=t_id,
+                         template_name=t_name, status=t_status, organization_id=t_org)
+            return {"success": True, "message": f"Template submitted to Meta. Status: {t_status}"}
         else:
             meta_err = meta_result.get("error", {})
-            if isinstance(meta_err, dict):
-                err_msg = (
-                    meta_err.get("error_user_msg")
-                    or meta_err.get("message")
-                    or str(meta_err)
-                )
-            else:
-                err_msg = str(meta_err)
-            db.close()
+            err_msg = (
+                meta_err.get("error_user_msg") or meta_err.get("message") or str(meta_err)
+            ) if isinstance(meta_err, dict) else str(meta_err)
             return {
                 "success": False,
                 "message": f"Meta rejected the template: {err_msg}",
-                "hint": f"Language was normalized to '{normalized_lang}' — check that your template name and body content are also valid.",
+                "hint": f"Language was normalized to '{normalized_lang}'.",
             }
     except Exception as e:
-        db.close()
         return {"success": False, "message": str(e)}
+    finally:
+        db.close()
 
 
 # ── PUT /{template_id} ─────────────────────────────────────────────────────────
 @router.put("/{template_id}")
 def update_template(template_id: int, data: TemplateUpdate = Body(...)):
     db = SessionLocal()
-    template = db.query(Template).filter(Template.id == template_id).first()
-    if not template:
+    try:
+        template = db.query(Template).filter(Template.id == template_id).first()
+        if not template:
+            return {"success": False, "message": "Template not found"}
+        if data.template_name is not None: template.template_name = data.template_name
+        if data.category is not None: template.category = data.category
+        if data.language is not None: template.language = data.language
+        if data.header is not None: template.header = data.header
+        if data.template_body is not None: template.template_body = data.template_body
+        if data.footer is not None: template.footer = data.footer
+        if data.buttons is not None: template.buttons = data.buttons
+        db.commit()
+        t_id, t_name, t_status, t_org = template.id, template.template_name, template.meta_status or "PENDING", template.organization_id
+        log_activity(db, action="updated", template_id=t_id, template_name=t_name, status=t_status, organization_id=t_org)
+        return {"success": True, "message": "Template updated"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+    finally:
         db.close()
-        return {"success": False, "message": "Template not found"}
 
-    if data.template_name is not None:
-        template.template_name = data.template_name
-    if data.category is not None:
-        template.category = data.category
-    if data.language is not None:
-        template.language = data.language
-    if data.header is not None:
-        template.header = data.header
-    if data.template_body is not None:
-        template.template_body = data.template_body
-    if data.footer is not None:
-        template.footer = data.footer
-    if data.buttons is not None:
-        template.buttons = data.buttons
-
-    db.commit()
-    log_activity(
-        db, action="updated",
-        template_id=template.id, template_name=template.template_name,
-        status=template.meta_status or "PENDING", organization_id=template.organization_id
-    )
-    db.close()
-    return {"success": True, "message": "Template updated"}
 
 # ── DELETE /{template_id} ──────────────────────────────────────────────────────
 @router.delete("/{template_id}")
 def delete_template(template_id: int):
     db = SessionLocal()
-    template = db.query(Template).filter(Template.id == template_id).first()
-    if not template:
+    try:
+        template = db.query(Template).filter(Template.id == template_id).first()
+        if not template:
+            return {"success": False, "message": "Template not found"}
+        t_id, t_name, t_status, t_org = template.id, template.template_name, template.meta_status or "PENDING", template.organization_id
+        log_activity(db, action="deleted", template_id=t_id, template_name=t_name, status=t_status, organization_id=t_org)
+        db.delete(template)
+        db.commit()
+        return {"success": True, "message": "Template deleted"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+    finally:
         db.close()
-        return {"success": False, "message": "Template not found"}
-
-    log_activity(
-        db, action="deleted",
-        template_id=template.id, template_name=template.template_name,
-        status=template.meta_status or "PENDING", organization_id=template.organization_id
-    )
-    db.delete(template)
-    db.commit()
-    db.close()
-    return {"success": True, "message": "Template deleted"}

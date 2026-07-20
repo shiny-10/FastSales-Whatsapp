@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from core.database import SessionLocal
-from models.postgres_model import Campaign, CampaignContact, CampaignRecipient, Contact, MessageLog, Template
+from models.postgres_model import Campaign, CampaignContact, CampaignRecipient, Contact, MessageLog, Template, WhatsAppInboxMessage
 
 router = APIRouter()
 
@@ -95,92 +95,77 @@ def campaign_details(campaign_id: int):
 def message_analytics():
     db = SessionLocal()
 
-    total = db.query(MessageLog).count()
+    # Count from BOTH MessageLog (campaigns) AND WhatsAppInboxMessage (inbox)
+    # WhatsAppInboxMessage statuses are uppercase: SENT, DELIVERED, READ, FAILED
+    # MessageLog statuses are lowercase: sent, delivered, read, failed
 
-    by_status = {
-        "sent": db.query(MessageLog).filter(
-            MessageLog.status == "sent"
-        ).count(),
+    ml_total     = db.query(MessageLog).count()
+    ml_sent      = db.query(MessageLog).filter(MessageLog.status == "sent").count()
+    ml_delivered = db.query(MessageLog).filter(MessageLog.status == "delivered").count()
+    ml_read      = db.query(MessageLog).filter(MessageLog.status == "read").count()
+    ml_failed    = db.query(MessageLog).filter(MessageLog.status == "failed").count()
 
-        "delivered": db.query(MessageLog).filter(
-            MessageLog.status == "delivered"
-        ).count(),
+    # Only count AGENT outbound inbox messages
+    wm_sent      = db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.sender_type == "AGENT", WhatsAppInboxMessage.status == "SENT").count()
+    wm_delivered = db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.sender_type == "AGENT", WhatsAppInboxMessage.status == "DELIVERED").count()
+    wm_read      = db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.sender_type == "AGENT", WhatsAppInboxMessage.status == "READ").count()
+    wm_failed    = db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.sender_type == "AGENT", WhatsAppInboxMessage.status == "FAILED").count()
+    wm_total     = wm_sent + wm_delivered + wm_read + wm_failed
 
-        "read": db.query(MessageLog).filter(
-            MessageLog.status == "read"
-        ).count(),
+    total     = ml_total + wm_total
+    sent      = ml_sent + wm_sent
+    delivered = ml_delivered + wm_delivered
+    read      = ml_read + wm_read
+    failed    = ml_failed + wm_failed
 
-        "failed": db.query(MessageLog).filter(
-            MessageLog.status == "failed"
-        ).count(),
-    }
-
-    sent = by_status["sent"]
-    delivered = by_status["delivered"]
-    read = by_status["read"]
-    failed = by_status["failed"]
-
-    delivery_rate = (
-        delivered / total * 100
-    ) if total else 0
-
-    read_rate = (
-        read / total * 100
-    ) if total else 0
-
-    failure_rate = (
-        failed / total * 100
-    ) if total else 0
+    delivery_rate = (delivered / total * 100) if total else 0
+    read_rate     = (read / total * 100)      if total else 0
+    failure_rate  = (failed / total * 100)    if total else 0
 
     db.close()
 
     return {
         "total_messages": total,
-        "status_breakdown": by_status,
+        "status_breakdown": {"sent": sent, "delivered": delivered, "read": read, "failed": failed},
         "delivery_rate": round(delivery_rate, 2),
-        "read_rate": round(read_rate, 2),
-        "failure_rate": round(failure_rate, 2)
+        "read_rate":     round(read_rate, 2),
+        "failure_rate":  round(failure_rate, 2),
     }
 
 @router.get("/summary")
 def dashboard_summary():
     db = SessionLocal()
 
-    total_contacts = db.query(Contact).count()
+    total_contacts  = db.query(Contact).count()
     total_templates = db.query(Template).count()
-
     total_campaigns = db.query(Campaign).count()
 
-    total_messages = db.query(MessageLog).count()
+    # MessageLog (campaigns/legacy)
+    ml_total     = db.query(MessageLog).count()
+    ml_sent      = db.query(MessageLog).filter(MessageLog.status == "sent").count()
+    ml_delivered = db.query(MessageLog).filter(MessageLog.status == "delivered").count()
+    ml_read      = db.query(MessageLog).filter(MessageLog.status == "read").count()
+    ml_failed    = db.query(MessageLog).filter(MessageLog.status == "failed").count()
 
-    sent = db.query(MessageLog).filter(
-        MessageLog.status == "sent"
-    ).count()
-
-    delivered = db.query(MessageLog).filter(
-        MessageLog.status == "delivered"
-    ).count()
-
-    read = db.query(MessageLog).filter(
-        MessageLog.status == "read"
-    ).count()
-
-    failed = db.query(MessageLog).filter(
-        MessageLog.status == "failed"
-    ).count()
+    # WhatsAppInboxMessage (inbox — agent outbound only)
+    wm_sent      = db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.sender_type == "AGENT", WhatsAppInboxMessage.status == "SENT").count()
+    wm_delivered = db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.sender_type == "AGENT", WhatsAppInboxMessage.status == "DELIVERED").count()
+    wm_read      = db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.sender_type == "AGENT", WhatsAppInboxMessage.status == "READ").count()
+    wm_failed    = db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.sender_type == "AGENT", WhatsAppInboxMessage.status == "FAILED").count()
+    wm_total     = wm_sent + wm_delivered + wm_read + wm_failed
 
     db.close()
 
     return {
-    "total_contacts": total_contacts,
-    "total_templates": total_templates,
-    "total_campaigns": total_campaigns,
-    "total_messages": total_messages,
-    "sent": sent,
-    "delivered": delivered,
-    "read": read,
-    "failed": failed
-  }
+        "total_contacts":  total_contacts,
+        "total_templates": total_templates,
+        "total_campaigns": total_campaigns,
+        "total_messages":  ml_total + wm_total,
+        "sent":            ml_sent      + wm_sent,
+        "delivered":       ml_delivered + wm_delivered,
+        "read":            ml_read      + wm_read,
+        "failed":          ml_failed    + wm_failed,
+    }
 
 @router.get("/messages")
 def message_history():

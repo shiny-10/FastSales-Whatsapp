@@ -14,7 +14,7 @@ def start_scheduler():
     scheduler.add_job(
         process_due_messages,
         "interval",
-        seconds=60
+        seconds=30
     )
 
     scheduler.start()

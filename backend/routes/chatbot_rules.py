@@ -1,10 +1,113 @@
+"""
+Chatbot rule routes.
+
+New inbox routes (used by the settings UI):
+  GET    /chatbot-rules           – list all rules for org
+  POST   /chatbot-rules           – create
+  PATCH  /chatbot-rules/{id}      – update
+  DELETE /chatbot-rules/{id}      – delete
+
+Legacy settings routes are kept for backward compatibility.
+"""
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Any
 from core.database import SessionLocal
-from models.postgres_model import ChatbotRule
+from models.postgres_model import ChatbotRule, WhatsAppInboxChatbotRule
 
 router = APIRouter()
+
+
+# ── New inbox chatbot rules (WhatsAppInboxChatbotRule) ────────────────────────
+
+def _serialize_inbox_rule(r: WhatsAppInboxChatbotRule) -> dict:
+    return {
+        "id": str(r.id),
+        "company_id": str(r.organization_id),
+        "keyword": r.keyword,
+        "response": r.response,
+        "is_active": r.is_active,
+        "match_exact": r.match_exact,
+        "priority": r.priority,
+        "created_at": r.created_at.isoformat() + "Z" if r.created_at else None,
+        "updated_at": r.updated_at.isoformat() + "Z" if r.updated_at else None,
+    }
+
+
+@router.get("/chatbot-rules")
+def list_inbox_chatbot_rules(organization_id: int = 1):
+    db = SessionLocal()
+    try:
+        rules = (
+            db.query(WhatsAppInboxChatbotRule)
+            .filter(WhatsAppInboxChatbotRule.organization_id == organization_id)
+            .order_by(WhatsAppInboxChatbotRule.priority.desc())
+            .all()
+        )
+        return [_serialize_inbox_rule(r) for r in rules]
+    finally:
+        db.close()
+
+
+@router.post("/chatbot-rules")
+def create_inbox_chatbot_rule(payload: dict):
+    db = SessionLocal()
+    try:
+        rule = WhatsAppInboxChatbotRule(
+            organization_id=int(payload.get("organization_id", 1)),
+            keyword=(payload.get("keyword") or "").strip(),
+            response=(payload.get("response") or "").strip(),
+            is_active=bool(payload.get("is_active", True)),
+            match_exact=bool(payload.get("match_exact", False)),
+            priority=int(payload.get("priority", 0)),
+        )
+        if not rule.keyword or not rule.response:
+            raise HTTPException(status_code=400, detail="keyword and response are required")
+        db.add(rule)
+        db.commit()
+        db.refresh(rule)
+        return _serialize_inbox_rule(rule)
+    finally:
+        db.close()
+
+
+@router.patch("/chatbot-rules/{rule_id}")
+def update_inbox_chatbot_rule(rule_id: int, payload: dict):
+    db = SessionLocal()
+    try:
+        rule = db.query(WhatsAppInboxChatbotRule).filter(
+            WhatsAppInboxChatbotRule.id == rule_id
+        ).first()
+        if not rule:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        allowed = {"keyword", "response", "is_active", "match_exact", "priority"}
+        for k, v in payload.items():
+            if k in allowed:
+                setattr(rule, k, v)
+        db.commit()
+        db.refresh(rule)
+        return _serialize_inbox_rule(rule)
+    finally:
+        db.close()
+
+
+@router.delete("/chatbot-rules/{rule_id}")
+def delete_inbox_chatbot_rule(rule_id: int):
+    db = SessionLocal()
+    try:
+        rule = db.query(WhatsAppInboxChatbotRule).filter(
+            WhatsAppInboxChatbotRule.id == rule_id
+        ).first()
+        if not rule:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        db.delete(rule)
+        db.commit()
+        return {"success": True, "id": str(rule_id)}
+    finally:
+        db.close()
+
+
+# ── Legacy settings routes (kept for backward compatibility) ──────────────────
 
 class ChatbotRuleCreate(BaseModel):
     name: str
@@ -12,6 +115,7 @@ class ChatbotRuleCreate(BaseModel):
     actions: Optional[Any] = None
     priority: Optional[int] = 100
     active: Optional[bool] = True
+
 
 @router.get("/settings/chatbot-rules")
 def list_chatbot_rules():
@@ -33,6 +137,7 @@ def list_chatbot_rules():
     finally:
         db.close()
 
+
 @router.post("/settings/chatbot-rules")
 def create_chatbot_rule(payload: ChatbotRuleCreate):
     db = SessionLocal()
@@ -51,6 +156,7 @@ def create_chatbot_rule(payload: ChatbotRuleCreate):
     finally:
         db.close()
 
+
 @router.patch("/settings/chatbot-rules/{item_id}")
 def update_chatbot_rule(item_id: int, payload: dict):
     db = SessionLocal()
@@ -66,6 +172,7 @@ def update_chatbot_rule(item_id: int, payload: dict):
         return {"success": True, "chatbot_rule": {"id": item.id}}
     finally:
         db.close()
+
 
 @router.delete("/settings/chatbot-rules/{item_id}")
 def delete_chatbot_rule(item_id: int):

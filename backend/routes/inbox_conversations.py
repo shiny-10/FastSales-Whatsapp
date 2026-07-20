@@ -30,6 +30,7 @@ def _conv_dict(c: WhatsAppInboxConversation, preview=None, last_sender=None, las
         "is_archived": c.is_archived,
         "unread_count": c.unread_count or 0,
         "last_message_at": c.last_message_at.isoformat() + "Z" if c.last_message_at else None,
+        "customer_last_seen_at": c.customer_last_seen_at.isoformat() + "Z" if getattr(c, "customer_last_seen_at", None) else None,
         "last_message_preview": preview,
         "last_message_sender": last_sender,
         "last_message_status": last_status,
@@ -82,6 +83,8 @@ def list_conversations(
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     archived: Optional[bool] = Query(None),
+    unread: Optional[bool] = Query(None),
+    assigned: Optional[bool] = Query(None),
     page: int = Query(1),
     page_size: int = Query(50),
 ):
@@ -101,6 +104,16 @@ def list_conversations(
         query = query.filter(WhatsAppInboxConversation.is_archived == False)
     else:
         query = query.filter(WhatsAppInboxConversation.is_archived == archived)
+
+    # Filter unread: conversations with unread_count > 0
+    if unread is True:
+        query = query.filter(WhatsAppInboxConversation.unread_count > 0)
+
+    # Filter assigned: conversations with an assigned agent
+    if assigned is True:
+        query = query.filter(WhatsAppInboxConversation.assigned_agent_id != None)
+    elif assigned is False:
+        query = query.filter(WhatsAppInboxConversation.assigned_agent_id == None)
 
     total = query.count()
     conversations = (

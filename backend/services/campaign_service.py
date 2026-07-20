@@ -32,7 +32,7 @@ def process_scheduled_campaigns():
 
             if (
     campaign.schedule_time
-    and campaign.schedule_time <= datetime.now()
+    and campaign.schedule_time <= datetime.utcnow()
 ):
 
                 print(

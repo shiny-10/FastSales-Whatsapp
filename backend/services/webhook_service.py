@@ -169,13 +169,16 @@ class WebhookService:
 
         # Update conversation
         try:
-            ts = datetime.fromtimestamp(int(timestamp)) if timestamp else datetime.utcnow()
+            ts = datetime.utcfromtimestamp(int(timestamp)) if timestamp else datetime.utcnow()
         except Exception:
             ts = datetime.utcnow()
 
         self.conv_repo.update(
             conversation.id,
             last_message_at=ts,
+            customer_last_seen_at=ts,   # track when customer was last active
+            # Customer replied → conversation is now active/open, not waiting
+            status="OPEN",
         )
         self.conv_repo.increment_unread(conversation.id)
 
@@ -187,6 +190,10 @@ class WebhookService:
             organization_id,
             conversation.id,
             MessageResponse.model_validate(msg_for_broadcast),
+        )
+        # Notify clients that conversation moved back to OPEN
+        socket_svc.emit_conversation_update(
+            organization_id, conversation.id, {"status": "OPEN"}
         )
 
         # Auto-reply / chatbot (run synchronously)
@@ -274,12 +281,31 @@ class WebhookService:
 
         msg = self.msg_repo.get_by_meta_id(meta_msg_id)
         if not msg:
+            # Still try to update MessageLog + CampaignRecipient by meta message id
+            self._sync_campaign_status(meta_msg_id, new_status)
             return
 
         self.msg_repo.update_status_by_meta_id(meta_msg_id, new_status)
 
+        # ── Also sync to MessageLog and CampaignRecipient ──────────────────
+        # This is what makes the campaign delivery report show correct statuses.
+        self._sync_campaign_status(meta_msg_id, new_status)
+
         conv = self.conv_repo.get_by_id(msg.conversation_id)
         if conv:
+            if new_status in ("SENT", "DELIVERED") and msg.sender_type == "AGENT":
+                if conv.status not in ("PENDING",):
+                    self.conv_repo.update(conv.id, status="PENDING")
+                    socket_svc.emit_conversation_update(
+                        organization_id, conv.id, {"status": "PENDING"}
+                    )
+            elif new_status == "READ" and msg.sender_type == "AGENT":
+                if conv.status == "PENDING":
+                    self.conv_repo.update(conv.id, status="OPEN")
+                    socket_svc.emit_conversation_update(
+                        organization_id, conv.id, {"status": "OPEN"}
+                    )
+
             socket_svc.emit_message_status(
                 organization_id,
                 msg.conversation_id,
@@ -287,6 +313,37 @@ class WebhookService:
                 msg.id,
                 meta_msg_id,
             )
+
+    def _sync_campaign_status(self, meta_msg_id: str, new_status: str) -> None:
+        """
+        Propagate a Meta delivery status (SENT/DELIVERED/READ/FAILED) to
+        MessageLog and CampaignRecipient rows that reference this meta message id.
+        Maps our internal status names to lowercase for legacy tables.
+        """
+        if not meta_msg_id:
+            return
+        # Map to lowercase for legacy tables (MessageLog / CampaignRecipient)
+        legacy_status = new_status.lower()   # DELIVERED → delivered, READ → read, etc.
+        try:
+            from models.postgres_model import MessageLog, CampaignRecipient
+
+            # Update MessageLog
+            msg_log = self.db.query(MessageLog).filter(
+                MessageLog.message_id == meta_msg_id
+            ).first()
+            if msg_log:
+                msg_log.status = legacy_status
+                self.db.commit()
+
+            # Update CampaignRecipient
+            rec = self.db.query(CampaignRecipient).filter(
+                CampaignRecipient.message_id == meta_msg_id
+            ).first()
+            if rec:
+                rec.status = legacy_status
+                self.db.commit()
+        except Exception:
+            pass
 
     def _handle_reaction(
         self, msg_data: dict, conversation, organization_id: int

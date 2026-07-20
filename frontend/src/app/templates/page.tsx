@@ -6,23 +6,35 @@ import {
   getTemplates, createTemplate, updateTemplate,
   deleteTemplate, syncTemplateStatus, resubmitTemplate, getRecentActivities,
 } from "../../services/templateService";
-import { getOrganizations } from "../../services/organizationService";
-import StatsCard from "../../components/StatsCard";
 
-const glass = { background: "linear-gradient(145deg,rgba(255,255,255,0.055) 0%,rgba(255,255,255,0.015) 100%)", border: "1px solid rgba(255,255,255,0.08)" } as const;
-const inputStyle = { background: "rgba(255,255,255,0.06)", border: "1.5px solid rgba(255,255,255,0.09)", color: "white", borderRadius: "10px", padding: "9px 14px", width: "100%", fontSize: "13px", outline: "none" } as const;
-const labelStyle = { fontSize: "11px", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "rgba(255,255,255,0.4)", marginBottom: "6px", display: "block" };
+const card = { background: "#ffffff", border: "1px solid #ece9f8", borderRadius: "14px", boxShadow: "0 1px 6px rgba(100,80,200,0.07)" };
+const inputStyle = { background: "#f5f4fb", border: "1.5px solid #e0ddf5", color: "#1a1040", borderRadius: "10px", padding: "9px 14px", width: "100%", fontSize: "13px", outline: "none" } as const;
+const labelStyle = { fontSize: "11px", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: "#9390b5", marginBottom: "6px", display: "block" };
 
 function StatusBadge({ status }: { status: string }) {
   const s = status.toUpperCase();
-  const cfg = s === "APPROVED" ? { bg: "rgba(16,185,129,0.15)", color: "#10b981", icon: CheckCircle }
-    : s === "REJECTED" ? { bg: "rgba(239,68,68,0.15)", color: "#f87171", icon: XCircle }
-    : { bg: "rgba(245,158,11,0.15)", color: "#f59e0b", icon: Clock };
+  const cfg = s === "APPROVED" ? { bg: "rgba(16,185,129,0.12)", color: "#10b981", icon: CheckCircle }
+    : s === "REJECTED"         ? { bg: "rgba(244,63,94,0.10)",  color: "#f43f5e", icon: XCircle }
+    :                            { bg: "rgba(245,158,11,0.12)", color: "#f59e0b", icon: Clock };
   const Icon = cfg.icon;
   return (
     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: cfg.bg, color: cfg.color }}>
       <Icon className="w-3 h-3" />{s}
     </span>
+  );
+}
+
+function StatCard({ icon: Icon, title, value, color, bg }: any) {
+  return (
+    <div className="rounded-2xl p-5 flex items-center justify-between" style={card}>
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "#9390b5" }}>{title}</p>
+        <p className="text-[28px] font-bold tabular-nums" style={{ color: "#1a1040" }}>{typeof value === "number" ? value.toLocaleString() : value}</p>
+      </div>
+      <div className="flex items-center justify-center w-12 h-12 rounded-xl flex-shrink-0" style={{ background: bg }}>
+        <Icon size={22} style={{ color }} />
+      </div>
+    </div>
   );
 }
 
@@ -36,23 +48,22 @@ export default function TemplatesPage() {
   const [resubmittingIds, setResubmittingIds] = useState<number[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<any>(null);
-  const [organizations, setOrganizations] = useState<any[]>([]);
   const [headerFile, setHeaderFile] = useState<File | null>(null);
   const [headerPreviewUrl, setHeaderPreviewUrl] = useState<string | null>(null);
   const [templateData, setTemplateData] = useState({
     template_name: "", category: "MARKETING", language: "en_US",
     header: "none", template_body: "", footer: "",
-    buttons: [] as any[], organization_id: 1, header_url: null as string | null,
+    buttons: [] as any[], header_url: null as string | null,
   });
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [td, ad, od] = await Promise.all([getTemplates(), getRecentActivities(10), getOrganizations()]);
+        const [td, ad] = await Promise.all([getTemplates(), getRecentActivities(10)]);
         if (!alive) return;
-        setTemplates(td); setRecentActivities(ad); setOrganizations(od || []);
-      } catch { /* ignore */ }
+        setTemplates(td); setRecentActivities(ad);
+      } catch { }
     })();
     return () => { alive = false; };
   }, []);
@@ -66,9 +77,9 @@ export default function TemplatesPage() {
     : templates.filter(t => (t.status || t.meta_status || "PENDING").toLowerCase() === filterStatus);
 
   const stats = {
-    total: templates.length,
+    total:    templates.length,
     approved: templates.filter(t => (t.status || t.meta_status || "").toUpperCase() === "APPROVED").length,
-    pending: templates.filter(t => (t.status || t.meta_status || "").toUpperCase() === "PENDING").length,
+    pending:  templates.filter(t => (t.status || t.meta_status || "").toUpperCase() === "PENDING").length,
     rejected: templates.filter(t => (t.status || t.meta_status || "").toUpperCase() === "REJECTED").length,
   };
 
@@ -89,25 +100,18 @@ export default function TemplatesPage() {
         } else {
           result = await createTemplate(templateData);
         }
-        // Template was saved — warn if Meta submission had an issue
-        if (result?.warning) {
-          notify("success", "✓ Template saved locally (Meta approval pending)");
-        } else {
-          notify("success", "✓ Template submitted to Meta for approval!");
-        }
+        notify("success", result?.warning ? "✓ Template saved locally" : "✓ Template submitted to Meta!");
       }
-      setTemplateData({ template_name: "", category: "MARKETING", language: "en_US", header: "none", template_body: "", footer: "", buttons: [], organization_id: 1, header_url: null });
+      setTemplateData({ template_name: "", category: "MARKETING", language: "en_US", header: "none", template_body: "", footer: "", buttons: [], header_url: null });
       setHeaderFile(null); setHeaderPreviewUrl(null); setEditingId(null); setShowModal(false);
       setTemplates(await getTemplates());
     } catch (e: any) {
-      const msg = (e as Error).message || "Failed to save template";
-      notify("error", msg);
-    }
-    finally { setIsLoading(false); }
+      notify("error", (e as Error).message || "Failed to save template");
+    } finally { setIsLoading(false); }
   };
 
   const handleEdit = (t: any) => {
-    setTemplateData({ template_name: t.template_name, category: t.category, language: t.language, header: t.header || "none", template_body: t.template_body, footer: t.footer || "", buttons: t.buttons || [], organization_id: t.organization_id || 1, header_url: t.header_url || null });
+    setTemplateData({ template_name: t.template_name, category: t.category, language: t.language, header: t.header || "none", template_body: t.template_body, footer: t.footer || "", buttons: t.buttons || [], header_url: t.header_url || null });
     setEditingId(t.id); setHeaderPreviewUrl(t.header_url || null); setShowModal(true);
   };
 
@@ -122,23 +126,10 @@ export default function TemplatesPage() {
     setSyncingIds(s => [...s, tid]);
     try {
       const result = await syncTemplateStatus(id);
-
-      if (result?.meta_status) {
-        setTemplates(p => p.map(t =>
-          Number(t.id) === tid ? { ...t, meta_status: result.meta_status, status: result.meta_status } : t
-        ));
-      }
-
-      if (result?.success) {
-        notify("success", `"${templateName}" — ${result.meta_status}`);
-      } else {
-        notify("error", result?.message || "Could not reach Meta");
-      }
-    } catch (e: any) {
-      notify("error", (e as Error).message || "Sync failed");
-    } finally {
-      setSyncingIds(s => s.filter(x => x !== tid));
-    }
+      if (result?.meta_status) setTemplates(p => p.map(t => Number(t.id) === tid ? { ...t, meta_status: result.meta_status, status: result.meta_status } : t));
+      notify(result?.success ? "success" : "error", result?.success ? `"${templateName}" — ${result.meta_status}` : result?.message || "Could not reach Meta");
+    } catch (e: any) { notify("error", (e as Error).message || "Sync failed"); }
+    finally { setSyncingIds(s => s.filter(x => x !== tid)); }
   };
 
   const handleResubmit = async (id: any) => {
@@ -146,27 +137,23 @@ export default function TemplatesPage() {
     setResubmittingIds(s => [...s, tid]);
     try {
       const result = await resubmitTemplate(id);
-      notify("success", result.message || "Template resubmitted to Meta!");
+      notify("success", result.message || "Resubmitted to Meta!");
       setTemplates(await getTemplates());
     } catch (e: any) {
       const err = e as any;
-      const msg = err.message || "Resubmit failed";
-      const hint = err.hint ? ` — ${err.hint}` : "";
-      notify("error", msg + hint);
-    } finally {
-      setResubmittingIds(s => s.filter(x => x !== tid));
-    }
+      notify("error", (err.message || "Resubmit failed") + (err.hint ? ` — ${err.hint}` : ""));
+    } finally { setResubmittingIds(s => s.filter(x => x !== tid)); }
   };
 
   const FILTER_TABS = [
-    { key: "all", label: "All", count: stats.total },
+    { key: "all",      label: "All",      count: stats.total    },
     { key: "approved", label: "Approved", count: stats.approved },
-    { key: "pending", label: "Pending", count: stats.pending },
+    { key: "pending",  label: "Pending",  count: stats.pending  },
     { key: "rejected", label: "Rejected", count: stats.rejected },
   ];
 
   return (
-    <div className="min-h-screen p-6 space-y-6 animate-fade-up">
+    <div className="p-6 space-y-5 animate-fade-up">
       {/* Toast */}
       {notification.message && (
         <div className="fixed top-5 right-5 z-50 px-5 py-3 rounded-xl text-sm font-semibold text-white shadow-xl"
@@ -178,34 +165,43 @@ export default function TemplatesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Templates</h1>
-          <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>Manage your WhatsApp message templates</p>
+          <h1 className="text-[22px] font-bold" style={{ color: "#1a1040" }}>Templates</h1>
+          <p className="text-sm mt-0.5" style={{ color: "#9390b5" }}>Manage your WhatsApp message templates</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-glow flex items-center gap-2 text-sm">
-          <Plus size={15} /> Create Template
+        <button onClick={() => setShowModal(true)}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white"
+          style={{ background: "linear-gradient(90deg,#7c3aed,#4f46e5)", boxShadow: "0 4px 14px rgba(124,58,237,0.3)" }}>
+          <Plus size={14} /> Create Template
         </button>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatsCard title="Total Templates" value={stats.total} icon={<FileText size={18} />} gradient="linear-gradient(135deg,#7c3aed,#4f46e5)" glowClass="ring-violet" />
-        <StatsCard title="Approved" value={stats.approved} icon={<CheckCircle size={18} />} gradient="linear-gradient(135deg,#10b981,#059669)" glowClass="ring-emerald" />
-        <StatsCard title="Pending" value={stats.pending} icon={<Clock size={18} />} gradient="linear-gradient(135deg,#f59e0b,#d97706)" glowClass="ring-amber" />
-        <StatsCard title="Rejected" value={stats.rejected} icon={<XCircle size={18} />} gradient="linear-gradient(135deg,#f43f5e,#e11d48)" glowClass="ring-rose" />
+        <StatCard icon={FileText}    title="Total Templates" value={stats.total}    color="#7c3aed" bg="rgba(124,58,237,0.10)" />
+        <StatCard icon={CheckCircle} title="Approved"        value={stats.approved} color="#10b981" bg="rgba(16,185,129,0.10)" />
+        <StatCard icon={Clock}       title="Pending"         value={stats.pending}  color="#f59e0b" bg="rgba(245,158,11,0.10)" />
+        <StatCard icon={XCircle}     title="Rejected"        value={stats.rejected} color="#f43f5e" bg="rgba(244,63,94,0.10)"  />
       </div>
 
-      {/* Main grid */}
-      <div className="grid xl:grid-cols-3 gap-5">
+      {/* Main grid — table + activity */}
+      <div className="grid xl:grid-cols-3 gap-5 items-start">
         {/* Table */}
-        <div className="xl:col-span-2 rounded-2xl overflow-hidden" style={glass}>
+        <div className="xl:col-span-2" style={{ ...card, padding: 0, overflow: "hidden" }}>
           {/* Filter tabs */}
-          <div className="flex gap-1 p-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+          <div className="flex gap-1 p-3" style={{ borderBottom: "1px solid #ece9f8" }}>
             {FILTER_TABS.map(tab => (
               <button key={tab.key} onClick={() => setFilterStatus(tab.key)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                style={{ background: filterStatus === tab.key ? "linear-gradient(135deg,#7c3aed,#4f46e5)" : "rgba(255,255,255,0.04)", color: filterStatus === tab.key ? "#fff" : "rgba(255,255,255,0.4)", boxShadow: filterStatus === tab.key ? "0 4px 12px rgba(124,58,237,0.4)" : "none" }}>
+                style={{
+                  background: filterStatus === tab.key ? "linear-gradient(135deg,#7c3aed,#4f46e5)" : "#f5f4fb",
+                  color: filterStatus === tab.key ? "#fff" : "#9390b5",
+                  boxShadow: filterStatus === tab.key ? "0 4px 12px rgba(124,58,237,0.25)" : "none",
+                }}>
                 {tab.label}
-                <span className="px-1.5 py-0.5 rounded-full text-[10px]" style={{ background: filterStatus === tab.key ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)" }}>{tab.count}</span>
+                <span className="px-1.5 py-0.5 rounded-full text-[10px]"
+                  style={{ background: filterStatus === tab.key ? "rgba(255,255,255,0.25)" : "#ece9f8", color: filterStatus === tab.key ? "#fff" : "#9390b5" }}>
+                  {tab.count}
+                </span>
               </button>
             ))}
           </div>
@@ -216,39 +212,38 @@ export default function TemplatesPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={6} className="text-center py-12" style={{ color: "rgba(255,255,255,0.3)" }}>Loading templates…</td></tr>
+                <tr><td colSpan={6} className="text-center py-12" style={{ color: "#b0aed0" }}>Loading…</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-12" style={{ color: "rgba(255,255,255,0.25)" }}>No templates found</td></tr>
+                <tr><td colSpan={6} className="text-center py-12" style={{ color: "#b0aed0" }}>No templates found</td></tr>
               ) : filtered.map(t => (
                 <tr key={t.id}>
-                  <td><span className="text-white font-medium">{t.template_name}</span></td>
-                  <td>{t.category}</td>
-                  <td>{t.language}</td>
+                  <td><span className="font-semibold" style={{ color: "#1a1040" }}>{t.template_name}</span></td>
+                  <td style={{ color: "#4b4880" }}>{t.category}</td>
+                  <td style={{ color: "#4b4880" }}>{t.language}</td>
                   <td><StatusBadge status={t.status || t.meta_status || "PENDING"} /></td>
-                  <td>{t.created_at ? new Date(t.created_at).toLocaleDateString() : "—"}</td>
+                  <td style={{ color: "#9390b5" }}>{t.created_at ? new Date(t.created_at).toLocaleDateString() : "—"}</td>
                   <td>
                     <div className="flex items-center justify-center gap-2">
                       {[
-                        { Icon: Edit2, fn: () => handleEdit(t), col: "#a78bfa", title: "Edit" },
-                        { Icon: Trash2, fn: () => handleDelete(t.id), col: "#f43f5e", title: "Delete" },
-                        { Icon: RefreshCw, fn: () => handleSync(t.id, t.template_name), col: "#10b981", spin: syncingIds.includes(Number(t.id)), title: "Sync approval status from Meta" },
-                      ].map(({ Icon, fn, col, spin, title }, k) => (
+                        { Icon: Edit2,     fn: () => handleEdit(t),                  col: "#7c3aed", title: "Edit",   spin: false },
+                        { Icon: Trash2,    fn: () => handleDelete(t.id),             col: "#f43f5e", title: "Delete", spin: false },
+                        { Icon: RefreshCw, fn: () => handleSync(t.id, t.template_name), col: "#10b981", title: "Sync", spin: syncingIds.includes(Number(t.id)) },
+                      ].map(({ Icon, fn, col, title, spin }, k) => (
                         <button key={k} onClick={fn} title={title}
                           className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
-                          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.07)" }}
-                          onMouseEnter={e => (e.currentTarget.style.background = col + "22")}
-                          onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
-                          <Icon size={13} style={{ color: col }} className={(spin as any) ? "animate-spin" : ""} />
+                          style={{ background: "#f5f4fb", border: "1px solid #e0ddf5" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = col + "15")}
+                          onMouseLeave={e => (e.currentTarget.style.background = "#f5f4fb")}>
+                          <Icon size={13} style={{ color: col }} className={spin ? "animate-spin" : ""} />
                         </button>
                       ))}
-                      {/* Resubmit button — shown when template was never sent to Meta */}
                       {!t.meta_template_id && (
                         <button onClick={() => handleResubmit(t.id)} title="Resubmit to Meta"
                           disabled={resubmittingIds.includes(Number(t.id))}
                           className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors disabled:opacity-50"
-                          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.07)" }}
-                          onMouseEnter={e => (e.currentTarget.style.background = "#f59e0b22")}
-                          onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
+                          style={{ background: "#f5f4fb", border: "1px solid #e0ddf5" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = "#f59e0b15")}
+                          onMouseLeave={e => (e.currentTarget.style.background = "#f5f4fb")}>
                           <Send size={13} style={{ color: "#f59e0b" }} className={resubmittingIds.includes(Number(t.id)) ? "animate-pulse" : ""} />
                         </button>
                       )}
@@ -261,26 +256,26 @@ export default function TemplatesPage() {
         </div>
 
         {/* Recent activity */}
-        <div className="rounded-2xl p-5" style={glass}>
-          <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
-            <Activity size={15} style={{ color: "#a78bfa" }} /> Recent Activity
+        <div style={{ ...card, padding: "20px" }}>
+          <h3 className="font-semibold text-[15px] mb-4 flex items-center gap-2" style={{ color: "#1a1040" }}>
+            <Activity size={15} style={{ color: "#7c3aed" }} /> Recent Activity
           </h3>
           {recentActivities.length === 0 ? (
-            <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,0.25)" }}>No recent activity</p>
+            <p className="text-sm text-center py-8" style={{ color: "#b0aed0" }}>No recent activity</p>
           ) : (
             <div className="space-y-3">
               {recentActivities.map(a => (
-                <div key={a.id} className="flex items-start gap-3 py-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                <div key={a.id} className="flex items-start gap-3 py-2.5" style={{ borderBottom: "1px solid #f0eefb" }}>
                   <span className="text-lg flex-shrink-0 mt-0.5">
                     {a.action === "created" ? "📝" : a.action === "updated" ? "✏️" : a.action === "deleted" ? "🗑️" : "🔄"}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium capitalize text-white">{a.action}</p>
-                    <p className="text-xs truncate" style={{ color: "rgba(255,255,255,0.4)" }}>{a.template_name}</p>
+                    <p className="text-sm font-medium capitalize" style={{ color: "#1a1040" }}>{a.action}</p>
+                    <p className="text-xs truncate" style={{ color: "#9390b5" }}>{a.template_name}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
                     <StatusBadge status={a.status || "PENDING"} />
-                    <p className="text-[10px] mt-1" style={{ color: "rgba(255,255,255,0.3)" }}>{new Date(a.created_at).toLocaleTimeString()}</p>
+                    <p className="text-[10px] mt-1" style={{ color: "#b0aed0" }}>{new Date(a.created_at).toLocaleTimeString()}</p>
                   </div>
                 </div>
               ))}
@@ -291,19 +286,20 @@ export default function TemplatesPage() {
 
       {/* Create / Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(8px)" }}>
-          <div className="w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl" style={{ background: "#13162b", border: "1px solid rgba(255,255,255,0.1)" }}>
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-              <h2 className="text-lg font-semibold text-white">{editingId ? "Edit Template" : "Create Template"}</h2>
-              <button onClick={() => setShowModal(false)} style={{ color: "rgba(255,255,255,0.4)" }}><X size={18} /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(26,16,64,0.35)", backdropFilter: "blur(6px)" }}>
+          <div className="w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl" style={{ background: "#fff", border: "1px solid #ece9f8" }}>
+            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid #ece9f8" }}>
+              <h2 className="text-lg font-bold" style={{ color: "#1a1040" }}>{editingId ? "Edit Template" : "Create Template"}</h2>
+              <button onClick={() => setShowModal(false)} style={{ color: "#9390b5" }}><X size={18} /></button>
             </div>
 
             <div className="grid grid-cols-2 gap-0 max-h-[75vh] overflow-y-auto">
               {/* Left — form */}
-              <div className="p-6 space-y-4" style={{ borderRight: "1px solid rgba(255,255,255,0.07)" }}>
-                <div><span style={labelStyle}>Template Name</span><input value={templateData.template_name} onChange={e => setTemplateData({ ...templateData, template_name: e.target.value })} placeholder="e.g. order_confirmation" style={inputStyle} className="placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none" />
-                  <p className="text-[11px] mt-1" style={{ color: "rgba(255,255,255,0.3)" }}>Lowercase, underscores only — e.g. <span style={{ color: "#a78bfa" }}>order_confirmation</span></p>
+              <div className="p-6 space-y-4" style={{ borderRight: "1px solid #ece9f8" }}>
+                <div>
+                  <span style={labelStyle}>Template Name</span>
+                  <input value={templateData.template_name} onChange={e => setTemplateData({ ...templateData, template_name: e.target.value })} placeholder="e.g. order_confirmation" style={inputStyle} className="placeholder:text-[#c0bed8] focus:outline-none" />
+                  <p className="text-[11px] mt-1" style={{ color: "#b0aed0" }}>Lowercase, underscores only</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><span style={labelStyle}>Category</span>
@@ -313,52 +309,13 @@ export default function TemplatesPage() {
                   </div>
                   <div><span style={labelStyle}>Language</span>
                     <select value={templateData.language} onChange={e => setTemplateData({ ...templateData, language: e.target.value })} style={inputStyle} className="focus:outline-none">
-                      <option value="en_US">English (US)</option>
-                      <option value="en_GB">English (UK)</option>
-                      <option value="ar">Arabic</option>
-                      <option value="zh_CN">Chinese (Simplified)</option>
-                      <option value="zh_TW">Chinese (Traditional)</option>
-                      <option value="cs">Czech</option>
-                      <option value="da">Danish</option>
-                      <option value="nl">Dutch</option>
-                      <option value="fi">Finnish</option>
-                      <option value="fr">French</option>
-                      <option value="de">German</option>
-                      <option value="el">Greek</option>
-                      <option value="he">Hebrew</option>
-                      <option value="hi">Hindi</option>
-                      <option value="hu">Hungarian</option>
-                      <option value="id">Indonesian</option>
-                      <option value="it">Italian</option>
-                      <option value="ja">Japanese</option>
-                      <option value="ko">Korean</option>
-                      <option value="ms">Malay</option>
-                      <option value="nb">Norwegian</option>
-                      <option value="fa">Persian (Farsi)</option>
-                      <option value="fil">Filipino</option>
-                      <option value="pl">Polish</option>
-                      <option value="pt_BR">Portuguese (Brazil)</option>
-                      <option value="pt_PT">Portuguese (Portugal)</option>
-                      <option value="ro">Romanian</option>
-                      <option value="ru">Russian</option>
-                      <option value="sk">Slovak</option>
-                      <option value="es_ES">Spanish (Spain)</option>
-                      <option value="es_MX">Spanish (Mexico)</option>
-                      <option value="sv">Swedish</option>
-                      <option value="sw">Swahili</option>
-                      <option value="ta">Tamil</option>
-                      <option value="th">Thai</option>
-                      <option value="tr">Turkish</option>
-                      <option value="uk">Ukrainian</option>
-                      <option value="ur">Urdu</option>
-                      <option value="vi">Vietnamese</option>
+                      <option value="en_US">English (US)</option><option value="en_GB">English (UK)</option>
+                      <option value="hi">Hindi</option><option value="ar">Arabic</option>
+                      <option value="fr">French</option><option value="de">German</option>
+                      <option value="es_ES">Spanish</option><option value="pt_BR">Portuguese (BR)</option>
+                      <option value="id">Indonesian</option><option value="tr">Turkish</option>
                     </select>
                   </div>
-                </div>
-                <div><span style={labelStyle}>Organization</span>
-                  <select value={templateData.organization_id} onChange={e => setTemplateData({ ...templateData, organization_id: Number(e.target.value) })} style={inputStyle} className="focus:outline-none">
-                    {organizations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                  </select>
                 </div>
                 <div><span style={labelStyle}>Header</span>
                   <select value={templateData.header} onChange={e => setTemplateData({ ...templateData, header: e.target.value })} style={inputStyle} className="focus:outline-none">
@@ -369,15 +326,15 @@ export default function TemplatesPage() {
                   <div><span style={labelStyle}>Upload {templateData.header}</span>
                     <input type="file" accept={templateData.header === "image" ? "image/*" : templateData.header === "video" ? "video/mp4" : ".pdf,.doc,.docx"}
                       onChange={e => { const f = e.target.files?.[0] || null; setHeaderFile(f); setHeaderPreviewUrl(f ? URL.createObjectURL(f) : null); }}
-                      className="w-full text-sm" style={{ color: "rgba(255,255,255,0.6)" }} />
+                      className="w-full text-sm" style={{ color: "#4b4880" }} />
                   </div>
                 )}
                 <div><span style={labelStyle}>Body Text</span>
                   <textarea rows={5} placeholder="Type your message..." value={templateData.template_body} onChange={e => setTemplateData({ ...templateData, template_body: e.target.value })}
-                    style={{ ...inputStyle, resize: "none" }} className="placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none" />
+                    style={{ ...inputStyle, resize: "none" }} className="placeholder:text-[#c0bed8] focus:outline-none" />
                 </div>
                 <div><span style={labelStyle}>Footer (optional)</span>
-                  <input value={templateData.footer} maxLength={60} onChange={e => setTemplateData({ ...templateData, footer: e.target.value })} placeholder="Optional footer (max 60 chars)" style={inputStyle} className="placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none" />
+                  <input value={templateData.footer} maxLength={60} onChange={e => setTemplateData({ ...templateData, footer: e.target.value })} placeholder="Optional footer (max 60 chars)" style={inputStyle} className="placeholder:text-[#c0bed8] focus:outline-none" />
                 </div>
                 <div>
                   <span style={labelStyle}>Buttons</span>
@@ -389,21 +346,21 @@ export default function TemplatesPage() {
                           <option value="QUICK_REPLY">QUICK_REPLY</option><option value="CALL_TO_ACTION">CALL_TO_ACTION</option>
                         </select>
                         <input value={btn.text} maxLength={20} placeholder="Label" onChange={e => { const b = [...templateData.buttons]; b[i].text = e.target.value; setTemplateData({ ...templateData, buttons: b }); }}
-                          style={{ ...inputStyle, flex: 1, width: "auto" }} className="placeholder:text-[rgba(255,255,255,0.2)] focus:outline-none text-xs" />
+                          style={{ ...inputStyle, flex: 1, width: "auto" }} className="placeholder:text-[#c0bed8] focus:outline-none text-xs" />
                         <button onClick={() => setTemplateData({ ...templateData, buttons: templateData.buttons.filter((_, j) => j !== i) })} style={{ color: "#f43f5e" }}><X size={15} /></button>
                       </div>
                     ))}
                   </div>
                   <button onClick={() => setTemplateData({ ...templateData, buttons: [...templateData.buttons, { type: "QUICK_REPLY", text: "" }] })}
-                    className="mt-2 text-xs font-medium" style={{ color: "#a78bfa" }}>+ Add Button</button>
+                    className="mt-2 text-xs font-medium" style={{ color: "#7c3aed" }}>+ Add Button</button>
                 </div>
               </div>
 
               {/* Right — preview */}
-              <div className="p-6 space-y-4">
+              <div className="p-6 space-y-4" style={{ background: "#faf9ff" }}>
                 <span style={labelStyle}>Preview</span>
                 <div className="rounded-2xl overflow-hidden" style={{ background: "#efeae2" }}>
-                  <div className="px-3 py-2 text-xs font-semibold" style={{ background: "#128c7e", color: "white" }}>WhatsApp Preview</div>
+                  <div className="px-3 py-2 text-xs font-semibold text-white" style={{ background: "#128c7e" }}>WhatsApp Preview</div>
                   <div className="p-4 min-h-48">
                     <div className="bg-white rounded-2xl rounded-tl-sm p-3 shadow-sm max-w-xs">
                       {templateData.header !== "none" && (headerPreviewUrl || templateData.header_url) ? (
@@ -431,11 +388,11 @@ export default function TemplatesPage() {
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="flex justify-end gap-3 px-6 py-4" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-              <button onClick={() => setShowModal(false)} className="px-4 py-2.5 rounded-xl text-sm"
-                style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.08)" }}>Cancel</button>
-              <button onClick={handleSave} disabled={isLoading} className="btn-glow text-sm px-5 py-2.5 disabled:opacity-60">
+            <div className="flex justify-end gap-3 px-6 py-4" style={{ borderTop: "1px solid #ece9f8" }}>
+              <button onClick={() => setShowModal(false)} className="px-4 py-2.5 rounded-xl text-sm font-medium"
+                style={{ background: "#f5f4fb", color: "#9390b5", border: "1px solid #e0ddf5" }}>Cancel</button>
+              <button onClick={handleSave} disabled={isLoading} className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-60"
+                style={{ background: "linear-gradient(90deg,#7c3aed,#4f46e5)", boxShadow: "0 4px 14px rgba(124,58,237,0.3)" }}>
                 {isLoading ? "Saving…" : editingId ? "Update" : "Create"}
               </button>
             </div>
@@ -445,4 +402,3 @@ export default function TemplatesPage() {
     </div>
   );
 }
-

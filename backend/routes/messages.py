@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Body
 from sqlalchemy.orm import Session
+from typing import List
 
 from core.database import SessionLocal
 from services.message_service import MessageService
@@ -116,29 +117,231 @@ def create_message(request: Request, payload: dict, db: Session = Depends(get_db
 
 @router.delete("/{message_id}", response_model=dict)
 def delete_message(message_id: int, db: Session = Depends(get_db)):
-    from models.postgres_model import WhatsAppInboxMessage
+    from models.postgres_model import WhatsAppInboxMessage, WhatsAppInboxConversation
+    import services.socket_service as socket_svc
     msg = db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
-    db.delete(msg)
+
+    # Soft-delete: mark as deleted, clear content (like real WhatsApp "Delete for everyone")
+    msg.is_deleted = True
+    msg.content = None
+    msg.caption = None
     db.commit()
+
+    # Get org_id to broadcast
+    conv = db.query(WhatsAppInboxConversation).filter(
+        WhatsAppInboxConversation.id == msg.conversation_id
+    ).first()
+    if conv:
+        socket_svc.emit_message_deleted(conv.organization_id, conv.id, msg.id)
+
     return {"id": str(message_id), "deleted": True}
 
 
 @router.delete("", response_model=dict)
-def delete_messages_bulk(payload: dict, db: Session = Depends(get_db)):
-    from models.postgres_model import WhatsAppInboxMessage
-    ids = [int(i) for i in payload.get("ids", [])]
+def delete_messages_bulk(ids: List[int] = Body(..., embed=True), db: Session = Depends(get_db)):
+    from models.postgres_model import WhatsAppInboxMessage, WhatsAppInboxConversation
+    import services.socket_service as socket_svc
     if not ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No message ids provided")
-    db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.id.in_(ids)).delete(synchronize_session=False)
+
+    msgs = db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.id.in_(ids)).all()
+    if not msgs:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Messages not found")
+
+    # Group by conversation for socket broadcasts
+    conv_msg_map: dict[int, list[int]] = {}
+    for m in msgs:
+        m.is_deleted = True
+        m.content = None
+        m.caption = None
+        conv_msg_map.setdefault(m.conversation_id, []).append(m.id)
+
     db.commit()
+
+    # Broadcast each deletion
+    for conv_id, msg_ids in conv_msg_map.items():
+        conv = db.query(WhatsAppInboxConversation).filter(
+            WhatsAppInboxConversation.id == conv_id
+        ).first()
+        if conv:
+            for mid in msg_ids:
+                socket_svc.emit_message_deleted(conv.organization_id, conv.id, mid)
+
     return {"deleted": len(ids), "ids": [str(i) for i in ids]}
 
 
-@router.get("/{conversation_id}", response_model=list[dict])
-def list_messages(conversation_id: int, db: Session = Depends(get_db)):
-    svc = MessageService(db)
-    messages = svc.list_messages(conversation_id)
-    return [{"id": m.id, "conversation_id": m.conversation_id, "content": m.content, "status": m.status} for m in messages]
 
+# ── Send Location ─────────────────────────────────────────────────────────────
+@router.post("/location", response_model=dict)
+def send_location(payload: dict, db: Session = Depends(get_db)):
+    """
+    Send a location pin via WhatsApp.
+    Expected: { conversation_id, latitude, longitude, name?, address? }
+    """
+    import httpx
+    from models.postgres_model import WhatsAppInboxConversation, WhatsAppInboxMessage, WhatsAppAccount
+    from datetime import datetime
+
+    conversation_id = int(payload.get("conversation_id", 0))
+    latitude = payload.get("latitude")
+    longitude = payload.get("longitude")
+    name = payload.get("name", "")
+    address = payload.get("address", "")
+
+    if not conversation_id or latitude is None or longitude is None:
+        raise HTTPException(status_code=400, detail="conversation_id, latitude and longitude are required")
+
+    conv = db.query(WhatsAppInboxConversation).filter(
+        WhatsAppInboxConversation.id == conversation_id
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    wa = db.query(WhatsAppAccount).filter(
+        WhatsAppAccount.organization_id == conv.organization_id
+    ).first()
+    if not wa or not wa.access_token or not wa.phone_number_id:
+        raise HTTPException(status_code=400, detail="WhatsApp account not connected")
+
+    from core.config import settings as cfg
+    base = cfg.META_BASE_URL.rstrip("/")
+    version = cfg.META_API_VERSION
+    send_url = f"{base}/{version}/{wa.phone_number_id}/messages"
+    headers = {"Authorization": f"Bearer {wa.access_token}", "Content-Type": "application/json"}
+
+    location_obj: dict = {"latitude": float(latitude), "longitude": float(longitude)}
+    if name:
+        location_obj["name"] = name
+    if address:
+        location_obj["address"] = address
+
+    send_payload = {
+        "messaging_product": "whatsapp",
+        "to": conv.customer_phone.replace("+", "").replace(" ", "").replace("-", ""),
+        "type": "location",
+        "location": location_obj,
+    }
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(send_url, json=send_payload, headers=headers)
+            resp.raise_for_status()
+            meta_msg_id = resp.json().get("messages", [{}])[0].get("id")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"Meta API error: {e.response.text}")
+
+    # Save to DB
+    content = f"📍 {name or ''} ({latitude}, {longitude})"
+    msg = WhatsAppInboxMessage(
+        conversation_id=conversation_id,
+        meta_message_id=meta_msg_id,
+        sender_type="AGENT",
+        sender_id=1,
+        message_type="LOCATION",
+        content=content,
+        status="SENT",
+    )
+    db.add(msg)
+    conv.last_message_at = datetime.utcnow()
+    conv.status = "PENDING"
+    db.commit()
+    db.refresh(msg)
+
+    import services.socket_service as socket_svc
+    from schemas.whatsapp_inbox import MessageResponse
+    socket_svc.emit_new_message(conv.organization_id, conv.id, MessageResponse.model_validate(msg))
+
+    return _msg_response(msg)
+
+
+# ── Send Contact Card (vCard) ─────────────────────────────────────────────────
+@router.post("/contact", response_model=dict)
+def send_contact(payload: dict, db: Session = Depends(get_db)):
+    """
+    Send a contact card via WhatsApp.
+    Expected: { conversation_id, contact_name, phone_number, email? }
+    """
+    import httpx
+    from models.postgres_model import WhatsAppInboxConversation, WhatsAppInboxMessage, WhatsAppAccount
+    from datetime import datetime
+
+    conversation_id = int(payload.get("conversation_id", 0))
+    contact_name = payload.get("contact_name", "").strip()
+    phone_number = payload.get("phone_number", "").strip()
+    email = payload.get("email", "").strip()
+
+    if not conversation_id or not contact_name or not phone_number:
+        raise HTTPException(status_code=400, detail="conversation_id, contact_name and phone_number are required")
+
+    conv = db.query(WhatsAppInboxConversation).filter(
+        WhatsAppInboxConversation.id == conversation_id
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    wa = db.query(WhatsAppAccount).filter(
+        WhatsAppAccount.organization_id == conv.organization_id
+    ).first()
+    if not wa or not wa.access_token or not wa.phone_number_id:
+        raise HTTPException(status_code=400, detail="WhatsApp account not connected")
+
+    from core.config import settings as cfg
+    base = cfg.META_BASE_URL.rstrip("/")
+    version = cfg.META_API_VERSION
+    send_url = f"{base}/{version}/{wa.phone_number_id}/messages"
+    headers = {"Authorization": f"Bearer {wa.access_token}", "Content-Type": "application/json"}
+
+    # Build Meta contacts payload
+    name_parts = contact_name.split(" ", 1)
+    first_name = name_parts[0]
+    last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+    contact_obj: dict = {
+        "name": {"formatted_name": contact_name, "first_name": first_name, "last_name": last_name},
+        "phones": [{"phone": phone_number, "type": "MOBILE"}],
+    }
+    if email:
+        contact_obj["emails"] = [{"email": email, "type": "WORK"}]
+
+    send_payload = {
+        "messaging_product": "whatsapp",
+        "to": conv.customer_phone.replace("+", "").replace(" ", "").replace("-", ""),
+        "type": "contacts",
+        "contacts": [contact_obj],
+    }
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(send_url, json=send_payload, headers=headers)
+            resp.raise_for_status()
+            meta_msg_id = resp.json().get("messages", [{}])[0].get("id")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"Meta API error: {e.response.text}")
+
+    # Save to DB
+    content = f"👤 {contact_name} · {phone_number}"
+    if email:
+        content += f" · {email}"
+
+    msg = WhatsAppInboxMessage(
+        conversation_id=conversation_id,
+        meta_message_id=meta_msg_id,
+        sender_type="AGENT",
+        sender_id=1,
+        message_type="CONTACTS",
+        content=content,
+        status="SENT",
+    )
+    db.add(msg)
+    conv.last_message_at = datetime.utcnow()
+    conv.status = "PENDING"
+    db.commit()
+    db.refresh(msg)
+
+    import services.socket_service as socket_svc
+    from schemas.whatsapp_inbox import MessageResponse
+    socket_svc.emit_new_message(conv.organization_id, conv.id, MessageResponse.model_validate(msg))
+
+    return _msg_response(msg)

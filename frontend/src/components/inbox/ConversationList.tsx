@@ -1,24 +1,23 @@
 "use client";
 import { useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
-import { MessageSquareDashed, Plus, SlidersHorizontal } from "lucide-react";
+import { MessageSquareDashed, SlidersHorizontal } from "lucide-react";
 import { useConversations } from "@/hooks/use-conversations";
 import { useInboxStore } from "@/store/inbox-store";
 import { ConversationCard } from "./ConversationCard";
 import { ConversationSkeleton } from "./ConversationSkeleton";
-import { NewContactModal } from "./NewContactModal";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { useSocket } from "@/lib/socket-context";
 import type { ConversationStatus } from "@/lib/types";
 
-const TABS: Array<{ label: string; status: ConversationStatus | null; archived?: boolean; badge?: number }> = [
-  { label: "All Messages", status: null },
-  { label: "Unread",       status: "OPEN" },
-  { label: "Waiting",      status: "PENDING" },
-  { label: "Assigned",     status: "RESOLVED" },
-  { label: "Archived",     status: null, archived: true },
-];
+const TABS = [
+  { label: "All Messages", status: null,       unread: null,  assigned: null, archived: false },
+  { label: "Unread",       status: null,       unread: true,  assigned: null, archived: false },
+  { label: "Waiting",      status: "PENDING",  unread: null,  assigned: null, archived: false },
+  { label: "Assigned",     status: null,       unread: null,  assigned: true, archived: false },
+  { label: "Archived",     status: null,       unread: null,  assigned: null, archived: true  },
+] as const;
 
 export function ConversationList() {
   const {
@@ -26,6 +25,8 @@ export function ConversationList() {
     setConversations, searchQuery, setSearchQuery,
     statusFilter, setStatusFilter,
     archivedFilter, setArchivedFilter,
+    unreadFilter, setUnreadFilter,
+    assignedFilter, setAssignedFilter,
   } = useInboxStore();
 
   const { connected } = useSocket();
@@ -34,6 +35,8 @@ export function ConversationList() {
     search: searchQuery || undefined,
     status: (statusFilter as ConversationStatus) || undefined,
     archived: archivedFilter ?? undefined,
+    unread: unreadFilter ?? undefined,
+    assigned: assignedFilter ?? undefined,
     page_size: 50,
   });
 
@@ -42,11 +45,21 @@ export function ConversationList() {
   }, [data, setConversations]);
 
   const conversations = data?.items ?? [];
-  const activeTabKey = archivedFilter ? "Archived" : statusFilter ?? "All Messages";
 
-  const handleTabClick = (tab: (typeof TABS)[number]) => {
-    if (tab.archived) { setStatusFilter(null); setArchivedFilter(true); }
-    else { setArchivedFilter(null); setStatusFilter(tab.status); }
+  // Determine which tab is active
+  const activeTabLabel = (() => {
+    if (archivedFilter) return "Archived";
+    if (unreadFilter) return "Unread";
+    if (assignedFilter) return "Assigned";
+    if (statusFilter === "PENDING") return "Waiting";
+    return "All Messages";
+  })();
+
+  const handleTabClick = (tab: typeof TABS[number]) => {
+    setArchivedFilter(tab.archived ? true : null);
+    setStatusFilter(tab.status ?? null);
+    setUnreadFilter(tab.unread ?? null);
+    setAssignedFilter(tab.assigned ?? null);
   };
 
   return (
@@ -80,7 +93,6 @@ export function ConversationList() {
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
             </button>
-            <NewContactModal onCreated={(id) => setActiveConversation(id)} />
           </div>
         </div>
 
@@ -109,8 +121,7 @@ export function ConversationList() {
         {/* Filter tabs */}
         <div className="flex gap-1 overflow-x-auto scrollbar-none">
           {TABS.map((tab) => {
-            const key = tab.archived ? "Archived" : (tab.status ?? "All Messages");
-            const isActive = activeTabKey === key;
+            const isActive = activeTabLabel === tab.label;
             const count = tab.label === "All Messages" ? data?.total : undefined;
             return (
               <button
@@ -131,7 +142,7 @@ export function ConversationList() {
                     className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold px-1"
                     style={{
                       background: isActive ? "rgba(255,255,255,0.25)" : "#7c3aed",
-                      color: isActive ? "#ffffff" : "#ffffff",
+                      color: "#ffffff",
                     }}
                   >
                     {count > 99 ? "99+" : count}

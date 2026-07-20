@@ -7,31 +7,46 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatMessageTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  if (isToday(date)) return format(date, "h:mm a");          // 3:45 PM
-  if (isYesterday(date)) return format(date, "h:mm a");      // Yesterday shows time in ConversationCard
+  // Ensure the string is treated as UTC — add Z if no timezone info present
+  const utcStr = dateStr.endsWith("Z") || dateStr.includes("+") ? dateStr : dateStr + "Z";
+  const date = new Date(utcStr);
+  if (isToday(date)) return format(date, "h:mm a");
+  if (isYesterday(date)) return format(date, "h:mm a");
   return format(date, "dd/MM/yyyy");
 }
 
 export function formatDateSeparator(dateStr: string): string {
-  const date = new Date(dateStr);
+  const utcStr = dateStr.endsWith("Z") || dateStr.includes("+") ? dateStr : dateStr + "Z";
+  const date = new Date(utcStr);
   if (isToday(date)) return "Today";
   if (isYesterday(date)) return "Yesterday";
   return format(date, "MMMM d, yyyy");
 }
 
 export function isSameDay(a: string, b: string): boolean {
-  return format(new Date(a), "yyyy-MM-dd") === format(new Date(b), "yyyy-MM-dd");
+  const toUtc = (s: string) => s.endsWith("Z") || s.includes("+") ? s : s + "Z";
+  return format(new Date(toUtc(a)), "yyyy-MM-dd") === format(new Date(toUtc(b)), "yyyy-MM-dd");
 }
 
 export function formatLastSeen(dateStr?: string | null): string {
   if (!dateStr) return "last seen recently";
   try {
-    const date = new Date(dateStr);
-    const timeStr = format(date, "h:mm a"); // e.g. 3:45 PM
-    if (isToday(date)) return `today at ${timeStr}`;
-    if (isYesterday(date)) return `yesterday at ${timeStr}`;
-    return `${format(date, "dd/MM/yyyy")} at ${timeStr}`;
+    const utcStr = dateStr.endsWith("Z") || dateStr.includes("+") ? dateStr : dateStr + "Z";
+    const date = new Date(utcStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60_000);
+
+    // Within last minute
+    if (diffMins < 1) return "online";
+    // Within last hour — show "X minutes ago"
+    if (diffMins < 60) return `last seen ${diffMins} minute${diffMins === 1 ? "" : "s"} ago`;
+    // Today — show "last seen today at H:MM AM/PM"
+    if (isToday(date)) return `last seen today at ${format(date, "h:mm a")}`;
+    // Yesterday
+    if (isYesterday(date)) return `last seen yesterday at ${format(date, "h:mm a")}`;
+    // Older
+    return `last seen ${format(date, "dd/MM/yyyy")} at ${format(date, "h:mm a")}`;
   } catch {
     return "last seen recently";
   }

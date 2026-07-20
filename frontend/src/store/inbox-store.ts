@@ -1,6 +1,16 @@
 import { create } from "zustand";
 import type { Conversation, Message, MessageStatus, Reaction } from "@/lib/types";
 
+export interface InboxNotification {
+  id: string;
+  conversationId: string;
+  customerName: string;
+  customerPhone: string;
+  preview: string;
+  receivedAt: string;
+  read: boolean;
+}
+
 interface InboxState {
   // Conversations
   conversations: Conversation[];
@@ -31,6 +41,20 @@ interface InboxState {
   setStatusFilter: (s: string | null) => void;
   archivedFilter: boolean | null;
   setArchivedFilter: (archived: boolean | null) => void;
+  unreadFilter: boolean | null;
+  setUnreadFilter: (unread: boolean | null) => void;
+  assignedFilter: boolean | null;
+  setAssignedFilter: (assigned: boolean | null) => void;
+
+  // "Delete for me" — local-only hidden message IDs (not synced to server)
+  hiddenMessageIds: Set<string>;
+  hideMessageLocally: (messageId: string) => void;
+
+  // Notifications — inbox messages from customers
+  notifications: InboxNotification[];
+  addNotification: (n: InboxNotification) => void;
+  markAllNotificationsRead: () => void;
+  clearNotifications: () => void;
 }
 
 export const useInboxStore = create<InboxState>()((set, get) => ({
@@ -138,4 +162,37 @@ export const useInboxStore = create<InboxState>()((set, get) => ({
   setStatusFilter: (statusFilter) => set({ statusFilter }),
   archivedFilter: null,
   setArchivedFilter: (archivedFilter) => set({ archivedFilter }),
+  unreadFilter: null,
+  setUnreadFilter: (unreadFilter) => set({ unreadFilter }),
+  assignedFilter: null,
+  setAssignedFilter: (assignedFilter) => set({ assignedFilter }),
+
+  // "Delete for me" — local-only, persisted to localStorage
+  hiddenMessageIds: (() => {
+    if (typeof window === "undefined") return new Set<string>();
+    try {
+      const raw = localStorage.getItem("hidden_message_ids");
+      return new Set<string>(raw ? JSON.parse(raw) : []);
+    } catch { return new Set<string>(); }
+  })(),
+  hideMessageLocally: (messageId: string) =>
+    set((state) => {
+      const next = new Set(state.hiddenMessageIds);
+      next.add(String(messageId));
+      try { localStorage.setItem("hidden_message_ids", JSON.stringify([...next])); } catch {}
+      return { hiddenMessageIds: next };
+    }),
+
+  // Notifications
+  notifications: [],
+  addNotification: (n) =>
+    set((state) => ({
+      // Keep max 50, newest first, deduplicate by id
+      notifications: [n, ...state.notifications.filter((x) => x.id !== n.id)].slice(0, 50),
+    })),
+  markAllNotificationsRead: () =>
+    set((state) => ({
+      notifications: state.notifications.map((n) => ({ ...n, read: true })),
+    })),
+  clearNotifications: () => set({ notifications: [] }),
 }));
