@@ -1,11 +1,11 @@
 from typing import List, Optional
 
-from core.config import settings
 from fastapi import APIRouter, Body
 from pydantic import BaseModel
 from core.database import SessionLocal
 from models.postgres_model import Campaign, CampaignContact, CampaignRecipient, Contact, MessageLog, Template
-from services.meta_service import MetaWhatsAppService, _build_meta_service
+from services.meta_service import MetaWhatsAppService
+from services.whatsapp_service import WhatsAppService
 from datetime import datetime
 
 router = APIRouter()
@@ -22,9 +22,18 @@ class CampaignUpdate(BaseModel):
     template_id: Optional[int] = None
     contact_ids: Optional[List[int]] = None
 
-# Build with correct credentials at request-time (not module load time)
-def _get_meta():
-    return _build_meta_service()
+
+def _meta_service_for_org(org_id: int, db) -> MetaWhatsAppService:
+    """Build MetaWhatsAppService from DB credentials.  Never reads .env."""
+    account = WhatsAppService(db).get_account(org_id)
+    if not account or not account.access_token or not account.phone_number_id:
+        raise ValueError(
+            "WhatsApp account not connected. Go to Settings → Configuration."
+        )
+    return MetaWhatsAppService(
+        access_token=account.access_token,
+        phone_number_id=account.phone_number_id,
+    )
 
 @router.post("/create-campaign")
 def create_campaign(data: CampaignCreate = Body(...)):
@@ -76,6 +85,12 @@ def create_campaign(data: CampaignCreate = Body(...)):
 
         results = []
 
+        # Build Meta service once from DB for this org (per-request, not global)
+        try:
+            meta = _meta_service_for_org(data.organization_id, db)
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+
         for contact_id in data.contact_ids:
 
             contact = db.query(Contact).filter(
@@ -107,7 +122,7 @@ def create_campaign(data: CampaignCreate = Body(...)):
                 getattr(contact, "order_id", "") or ""
             )
 
-            result = _get_meta().send_template_message(
+            result = meta.send_template_message(
                 phone,
                 template.template_name,
                 language_code=template.language or "en_US",
@@ -501,7 +516,11 @@ def run_campaign(data: dict):
         if not campaign_contacts:
             return {"success": False, "error": "No contacts in this campaign"}
 
-        meta = _get_meta()
+        # ── Use DB credentials (from Settings page) ────────────────────────
+        try:
+            meta = _meta_service_for_org(campaign.organization_id, db)
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
         results = []
         sent_count = 0
         failed_count = 0

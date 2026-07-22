@@ -1,23 +1,37 @@
 from __future__ import annotations
-from core.config import settings
 from core.database import SessionLocal
 from models.postgres_model import Campaign, CampaignContact, CampaignRecipient, Contact, MessageLog, Template
-from services.meta_service import _build_meta_service
+from services.meta_service import MetaWhatsAppService
+from services.whatsapp_service import WhatsAppService
 
 from datetime import datetime
 
-def _get_meta_service():
-    return _build_meta_service()
+
+def _meta_service_for_org(org_id: int, db) -> MetaWhatsAppService:
+    """
+    Build a MetaWhatsAppService from the DB account for the given org.
+    Raises ValueError if the account is missing or incomplete.
+    Never reads credentials from .env.
+    """
+    account = WhatsAppService(db).get_account(org_id)
+    if not account or not account.access_token or not account.phone_number_id:
+        raise ValueError(
+            f"WhatsApp account for org {org_id} is not configured. "
+            "Go to Settings → Configuration to connect."
+        )
+    return MetaWhatsAppService(
+        access_token=account.access_token,
+        phone_number_id=account.phone_number_id,
+    )
+
 
 def process_scheduled_campaigns():
 
     print("Scheduler Tick:", datetime.now())
 
     db = SessionLocal()
-    meta_service = _get_meta_service()
 
     try:
-
         campaigns = db.query(Campaign).filter(
             Campaign.status == "scheduled"
         ).all()
@@ -31,21 +45,24 @@ def process_scheduled_campaigns():
             print("-------------------------")
 
             if (
-    campaign.schedule_time
-    and campaign.schedule_time <= datetime.utcnow()
-):
+                campaign.schedule_time
+                and campaign.schedule_time <= datetime.utcnow()
+            ):
+                print(f"Running Campaign: {campaign.campaign_name}")
 
-                print(
-                    f"Running Campaign: {campaign.campaign_name}"
-                )
+                # Build a fresh service from DB credentials for this org.
+                # Done inside the loop so each campaign uses its own org's account.
+                try:
+                    meta_service = _meta_service_for_org(campaign.organization_id, db)
+                except ValueError as e:
+                    print(f"Skipping campaign {campaign.id}: {e}")
+                    continue
 
                 template = db.query(Template).filter(
                     Template.id == campaign.template_id
                 ).first()
 
-                campaign_contacts = db.query(
-                    CampaignContact
-                ).filter(
+                campaign_contacts = db.query(CampaignContact).filter(
                     CampaignContact.campaign_id == campaign.id
                 ).all()
 
@@ -59,23 +76,13 @@ def process_scheduled_campaigns():
                         continue
 
                     phone = contact.phone_number
-
                     message_text = template.template_body
+                    message_text = message_text.replace("{{name}}", contact.name or "")
 
-                    message_text = message_text.replace(
-                        "{{name}}",
-                        contact.name or ""
-                    )
-
-                    result = meta_service.send_text_message(
-                        phone,
-                        message_text
-                    )
-
+                    result = meta_service.send_text_message(phone, message_text)
                     print(result)
 
                     message_id = None
-
                     if result.get("messages"):
                         message_id = result["messages"][0].get("id")
 
@@ -85,18 +92,16 @@ def process_scheduled_campaigns():
                         text=message_text,
                         direction="outgoing",
                         status="sent",
-                        organization_id=campaign.organization_id
+                        organization_id=campaign.organization_id,
                     )
-
                     db.add(log)
 
                     recipient = CampaignRecipient(
                         campaign_id=campaign.id,
                         phone_number=phone,
                         status="sent",
-                        message_id=message_id
+                        message_id=message_id,
                     )
-
                     db.add(recipient)
 
                 campaign.status = "completed"

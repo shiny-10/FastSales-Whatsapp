@@ -348,3 +348,88 @@ def get_reactions(message_id: int):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+# ── Signed URL for media files ────────────────────────────────────────────────
+@router.get("/media/{media_file_id}/signed-url")
+def get_signed_media_url(media_file_id: int):
+    """
+    Return an accessible URL for a media file.
+    Priority: S3 presigned URL → direct file_url → Meta CDN URL (via media_id)
+    """
+    from core.database import SessionLocal
+    from models.postgres_model import WhatsAppInboxMediaFile, WhatsAppAccount
+    from fastapi import HTTPException
+    import httpx
+
+    db = SessionLocal()
+    try:
+        mf = db.query(WhatsAppInboxMediaFile).filter(
+            WhatsAppInboxMediaFile.id == media_file_id
+        ).first()
+        if not mf:
+            raise HTTPException(status_code=404, detail="Media file not found")
+
+        # 1. S3 presigned URL
+        if mf.s3_key:
+            try:
+                from services.media_service import MediaService
+                svc = MediaService(db)
+                signed = svc.generate_signed_url(mf.s3_key)
+                return {"signed_url": signed, "expires_in": 3600}
+            except Exception:
+                pass
+
+        # 2. Direct public URL
+        if mf.file_url and mf.file_url.startswith("http"):
+            return {"signed_url": mf.file_url, "expires_in": 86400}
+
+        # 3. Fetch download URL from Meta using media_id
+        if mf.media_id:
+            try:
+                # Get WhatsApp account token
+                from models.postgres_model import WhatsAppInboxMessage
+                msg = db.query(WhatsAppInboxMessage).filter(
+                    WhatsAppInboxMessage.id == mf.message_id
+                ).first()
+                conv_org_id = 1
+                if msg:
+                    from models.postgres_model import WhatsAppInboxConversation
+                    conv = db.query(WhatsAppInboxConversation).filter(
+                        WhatsAppInboxConversation.id == msg.conversation_id
+                    ).first()
+                    if conv:
+                        conv_org_id = conv.organization_id
+
+                wa = db.query(WhatsAppAccount).filter(
+                    WhatsAppAccount.organization_id == conv_org_id
+                ).first()
+
+                if wa and wa.access_token:
+                    from core.config import settings as cfg
+                    base = cfg.META_BASE_URL.rstrip("/")
+                    version = cfg.META_API_VERSION
+                    headers = {"Authorization": f"Bearer {wa.access_token}"}
+
+                    # Get the CDN download URL
+                    r = httpx.get(
+                        f"{base}/{version}/{mf.media_id}",
+                        headers=headers,
+                        timeout=10
+                    )
+                    if r.status_code == 200:
+                        cdn_url = r.json().get("url")
+                        if cdn_url:
+                            # Cache the URL in DB for future requests
+                            mf.file_url = cdn_url
+                            db.commit()
+                            return {"signed_url": cdn_url, "expires_in": 300}
+            except Exception:
+                pass
+
+        raise HTTPException(
+            status_code=404,
+            detail="Media file has no accessible URL."
+        )
+    finally:
+        db.close()

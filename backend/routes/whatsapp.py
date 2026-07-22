@@ -1,11 +1,12 @@
 from core.config import settings
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi import Body, Request
 from pydantic import BaseModel
 from services.meta_service import MetaWhatsAppService
 from services.whatsapp_service import WhatsAppService
 from fastapi import HTTPException
 from schemas.whatsapp_inbox import WhatsAppConnectRequest
+from routes.deps import get_meta_service
 
 from core.database import SessionLocal
 from models.postgres_model import Contact, Conversation, ConversationMessage, MessageLog
@@ -18,19 +19,6 @@ router = APIRouter()
 class MessageRequest(BaseModel):
     to: str
     template_name: str
-
-meta_access_token = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN
-meta_phone_number_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID
-meta_service = MetaWhatsAppService(
-    meta_access_token,
-    meta_phone_number_id,
-)
-
-def _get_meta_service() -> MetaWhatsAppService:
-    """Always read fresh credentials from settings (picks up .env changes after restart)."""
-    token = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN
-    phone_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID
-    return MetaWhatsAppService(token, phone_id)
 
 @router.post("/send")
 def send_message(data: MessageRequest, request: Request):
@@ -53,14 +41,15 @@ def send_message(data: MessageRequest, request: Request):
             resolved_token    = db_account.access_token
             resolved_phone_id = db_account.phone_number_id
         else:
-            # Fall back to .env credentials
-            resolved_token    = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN or ""
-            resolved_phone_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID or ""
+            return {
+                "success": False,
+                "error": "WhatsApp account is not configured. Go to Settings → Configuration to connect your account.",
+            }
 
         if not resolved_token or not resolved_phone_id:
             return {
                 "success": False,
-                "error": "WhatsApp send credentials are not configured. Go to Settings → Configuration to connect your account.",
+                "error": "WhatsApp account credentials are missing. Go to Settings → Configuration.",
             }
 
         svc = MetaWhatsAppService(resolved_token, resolved_phone_id)
@@ -247,30 +236,37 @@ def send_message(data: MessageRequest, request: Request):
         db.close()
 
 @router.get("/info")
-def get_whatsapp_info():
-    svc = _get_meta_service()
-    result = svc.get_phone_number_info()
+def get_whatsapp_info(
+    request: Request,
+    meta_svc: MetaWhatsAppService = Depends(get_meta_service),
+):
+    result = meta_svc.get_phone_number_info()
     if result.get("success") is False:
         return {
             "success": False,
-            "error": result.get("error", "Failed to fetch WhatsApp info")
+            "error": result.get("error", "Failed to fetch WhatsApp info"),
         }
-
     return {
         "success": True,
         "phone_number": result.get("display_phone_number"),
-        "phone_number_id": meta_service.phone_number_id
+        "phone_number_id": meta_svc.phone_number_id,
     }
 
 @router.get("/settings")
-def get_whatsapp_settings():
+def get_whatsapp_settings(request: Request):
     # log incoming request info for debugging
     print("GET /api/whatsapp/settings called")
+    # Resolve org_id
+    try:
+        org_id = int(request.headers.get("X-Organization-Id") or 1)
+    except Exception:
+        org_id = 1
+
     # Build default settings and merge persisted values from DB if any
     from core.database import SessionLocal
     from models.postgres_model import WhatsAppSettings
 
-    settings = _build_settings()
+    settings_dict = _build_settings(org_id)
     db = None
     try:
         db = SessionLocal()
@@ -278,8 +274,8 @@ def get_whatsapp_settings():
         if record:
             p = record.to_dict()
             for k, v in p.items():
-                if v is not None and k in settings:
-                    settings[k] = v
+                if v is not None and k in settings_dict:
+                    settings_dict[k] = v
     except Exception as e:
         # Log DB error but return default settings so UI can still load
         print("Warning: failed to read whatsapp_settings from DB:", e)
@@ -287,33 +283,54 @@ def get_whatsapp_settings():
         if db:
             db.close()
 
-    return {"success": True, "settings": settings}
+    return {"success": True, "settings": settings_dict}
 
-def _build_settings():
-    # Aggregate WhatsApp configuration and stats for frontend settings view
-    result = _get_meta_service().get_phone_number_info()
-
-    # compute message usage in last 24 hours
+def _build_settings(org_id: int = 1):
+    """Build the settings dict from DB credentials (never from .env globals)."""
     from core.database import SessionLocal
     from models.postgres_model import MessageLog
     from datetime import datetime, timedelta
+    from services.whatsapp_service import WhatsAppService
 
+    # Resolve phone info from DB account
     db = SessionLocal()
+    phone_display = ""
+    waba_id_val = ""
+    phone_number_id_val = ""
     try:
-        since = datetime.utcnow() - timedelta(hours=24)
-        used = db.query(MessageLog).filter(MessageLog.created_at >= since).count()
+        account = WhatsAppService(db).get_account(org_id)
+        if account and account.access_token and account.phone_number_id:
+            svc = MetaWhatsAppService(
+                access_token=account.access_token,
+                phone_number_id=account.phone_number_id,
+            )
+            result = svc.get_phone_number_info()
+            phone_display = result.get("display_phone_number", "") if isinstance(result, dict) else ""
+            waba_id_val = account.waba_id or ""
+            phone_number_id_val = account.phone_number_id or ""
     except Exception:
-        used = 0
+        pass
     finally:
         db.close()
 
-    settings = {
-        "waba_id": meta_service.phone_number_id or "",
+    # Message usage in last 24 h
+    used = 0
+    db2 = SessionLocal()
+    try:
+        since = datetime.utcnow() - timedelta(hours=24)
+        used = db2.query(MessageLog).filter(MessageLog.created_at >= since).count()
+    except Exception:
+        pass
+    finally:
+        db2.close()
+
+    return {
+        "waba_id": waba_id_val,
         "waba_name": "FastSales CRM",
-        "phone_display_name": result.get("display_phone_number") if isinstance(result, dict) else "",
-        "phone_number": result.get("display_phone_number") if isinstance(result, dict) else "",
+        "phone_display_name": phone_display,
+        "phone_number": phone_display,
         "phone_quality": "High Quality",
-        "status": "Connected" if not result.get("success") is False else "Disconnected",
+        "status": "Connected" if phone_display else "Disconnected",
         "meta_business_account_id": "",
         "business_account_name": "FastSales Technologies",
         "connected_by": "admin@fastsales.com",
@@ -329,11 +346,14 @@ def _build_settings():
         "subscribed_events": ["messages", "message_status", "delivery", "read", "account_alerts"],
     }
 
-    return settings
-
 @router.put("/settings")
-def update_whatsapp_settings(payload: dict = Body(...)):
+def update_whatsapp_settings(request: Request, payload: dict = Body(...)):
     print("PUT /api/whatsapp/settings called with payload keys:", list(payload.keys()))
+    try:
+        org_id = int(request.headers.get("X-Organization-Id") or 1)
+    except Exception:
+        org_id = 1
+
     # Persist partial updates to the whatsapp_settings table
     from core.database import SessionLocal
     from models.postgres_model import WhatsAppSettings
@@ -352,7 +372,7 @@ def update_whatsapp_settings(payload: dict = Body(...)):
         db.commit()
         db.refresh(record)
         # Build merged settings to return
-        base = _build_settings()
+        base = _build_settings(org_id)
         p = record.to_dict()
         for k, v in p.items():
             if v is not None and k in base:
@@ -442,10 +462,14 @@ def get_env_credentials():
     return {
         "waba_id": waba_id,
         "phone_number_id": phone_id,
-        "access_token": token,          # full token — used to auto-fill the Settings form
+        "access_token": token,
         "has_token": bool(token),
         "has_phone_id": bool(phone_id),
     }
+
+
+@router.get("/account")
+def get_account(request: Request):
     db = SessionLocal()
     try:
         try:

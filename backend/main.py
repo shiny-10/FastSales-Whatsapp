@@ -102,13 +102,18 @@ def startup_event():
 
 
 def _sync_env_token_to_db():
-    """If .env has META credentials, upsert them into whatsapp_accounts table."""
+    """
+    On first startup (no DB record yet), seed the whatsapp_accounts table
+    from .env so the app works out of the box.
+    If a record already exists, do NOT overwrite it — the UI is the source
+    of truth after the first run.
+    """
     token    = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN
     phone_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID
     waba_id  = settings.META_BUSINESS_ACCOUNT_ID or settings.WABA_ID
 
     if not token or not phone_id:
-        return  # nothing to sync
+        return
 
     from core.database import SessionLocal
     from models.postgres_model import WhatsAppAccount
@@ -118,30 +123,23 @@ def _sync_env_token_to_db():
             WhatsAppAccount.organization_id == 1
         ).first()
         if account:
-            # Only update if the token actually changed — avoids unnecessary writes
-            if account.access_token != token:
-                account.access_token   = token
-                account.phone_number_id = phone_id
-                if waba_id:
-                    account.waba_id = waba_id
-                account.status = "ACTIVE"
-                db.commit()
-                print("[startup] Synced META_ACCESS_TOKEN from .env → whatsapp_accounts DB.")
-        else:
-            # No account yet — create one from .env so the app works out of the box
-            new_account = WhatsAppAccount(
-                organization_id=1,
-                waba_id=waba_id or "",
-                phone_number_id=phone_id,
-                access_token=token,
-                status="ACTIVE",
-                webhook_verified=False,
-            )
-            db.add(new_account)
-            db.commit()
-            print("[startup] Created whatsapp_accounts record from .env credentials.")
+            # Record already exists — respect what the user set in the UI
+            print("[startup] whatsapp_accounts record exists — keeping UI credentials.")
+            return
+        # First run — seed from .env
+        new_account = WhatsAppAccount(
+            organization_id=1,
+            waba_id=waba_id or "",
+            phone_number_id=phone_id,
+            access_token=token,
+            status="ACTIVE",
+            webhook_verified=False,
+        )
+        db.add(new_account)
+        db.commit()
+        print("[startup] Created whatsapp_accounts record from .env credentials.")
     except Exception as e:
-        print(f"[startup] Warning: could not sync token to DB: {e}")
+        print(f"[startup] Warning: could not seed token to DB: {e}")
         db.rollback()
     finally:
         db.close()

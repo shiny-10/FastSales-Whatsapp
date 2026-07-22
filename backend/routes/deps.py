@@ -1,5 +1,7 @@
 from core.config import settings
-from fastapi import WebSocket, Depends, HTTPException, Header, Cookie
+from fastapi import WebSocket, Depends, HTTPException, Header, Cookie, Request
+from sqlalchemy.orm import Session
+from core.database import get_db
 
 import jwt
 from datetime import datetime
@@ -55,3 +57,37 @@ async def get_current_user(authorization: str | None = Header(None), access_toke
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid token")
     return {"id": payload.get("user_id"), "organization_id": payload.get("organization_id"), "exp": payload.get("exp")}
+
+
+# ── WhatsApp per-request dependency ──────────────────────────────────────────
+
+def get_meta_service(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    FastAPI dependency: build a MetaWhatsAppService from the DB row for the
+    current organisation.  Raises 409 if the account is missing or incomplete.
+
+    org_id resolution order:
+      1. X-Organization-Id header (set by the frontend)
+      2. Falls back to 1 (single-tenant default)
+    """
+    from services.whatsapp_service import WhatsAppService
+    from services.meta_service import MetaWhatsAppService
+
+    try:
+        org_id = int(request.headers.get("X-Organization-Id") or 1)
+    except (TypeError, ValueError):
+        org_id = 1
+
+    account = WhatsAppService(db).get_account(org_id)
+    if not account or not account.access_token or not account.phone_number_id:
+        raise HTTPException(
+            status_code=409,
+            detail="WhatsApp is not configured for this organization.",
+        )
+    return MetaWhatsAppService(
+        access_token=account.access_token,
+        phone_number_id=account.phone_number_id,
+    )

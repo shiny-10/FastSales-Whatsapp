@@ -56,23 +56,17 @@ export default function WhatsAppSettingsPage() {
   const account = status?.account;
   const connected = status?.connected;
 
-  // Auto-populate form from DB account (waba_id + phone_number_id)
+  // Populate form from DB account — Settings page is the source of truth
   useEffect(() => {
     if (account) {
-      setTimeout(() => setForm(f => ({ ...f, waba_id: account.waba_id ?? "", phone_number_id: account.phone_number_id ?? "" })), 0);
+      setForm(f => ({
+        ...f,
+        waba_id: account.waba_id ?? "",
+        phone_number_id: account.phone_number_id ?? "",
+        // access_token intentionally not auto-filled — user must enter it
+      }));
     }
   }, [status]);
-
-  // Also sync all credentials from .env via backend
-  useEffect(() => {
-    api.get("/api/whatsapp/env-credentials").then(({ data }) => {
-      setForm(f => ({
-        waba_id: data.waba_id || f.waba_id,
-        phone_number_id: data.phone_number_id || f.phone_number_id,
-        access_token: data.access_token || f.access_token,
-      }));
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(form)); }, [form]);
 

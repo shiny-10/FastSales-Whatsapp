@@ -37,12 +37,18 @@ class WhatsAppService:
                 )
 
     def connect(self, organization_id: int, request: WhatsAppConnectRequest) -> WhatsAppAccount:
-        # Validate Meta credentials
-        phone_data = self.validate_token(
-            request.access_token, request.phone_number_id
-        )
-        display_phone = phone_data.get("display_phone_number")
-        verified_name = phone_data.get("verified_name")
+        # Try to validate — but don't block saving if Meta is unreachable
+        display_phone = None
+        verified_name = None
+        try:
+            phone_data = self.validate_token(
+                request.access_token, request.phone_number_id
+            )
+            display_phone = phone_data.get("display_phone_number")
+            verified_name = phone_data.get("verified_name")
+        except Exception:
+            # Validation failed — still save the credentials so user can update them
+            pass
 
         account = self.repo.upsert(
             organization_id=organization_id,
@@ -56,21 +62,9 @@ class WhatsAppService:
         return account
 
     def get_account(self, organization_id: int) -> Optional[WhatsAppAccount]:
+        """Return the WhatsApp account for this org. Does NOT validate the token
+        against Meta — token validity is checked only when actually sending."""
         account = self.repo.get_by_organization(organization_id)
-        if account and account.status == "ACTIVE":
-            try:
-                # Validate token but do not raise on transient errors; treat unreachable Meta as disconnected
-                self.validate_token(account.access_token, account.phone_number_id)
-            except HTTPException as exc:
-                if exc.status_code == status.HTTP_400_BAD_REQUEST:
-                    account = self.repo.update(account.id, status="DISCONNECTED")
-                    return account
-                # For other HTTP errors (timeouts/network), mark disconnected to avoid blocking frontend
-                try:
-                    account = self.repo.update(account.id, status="DISCONNECTED")
-                    return account
-                except Exception:
-                    return None
         return account
 
     def disconnect(self, organization_id: int) -> bool:
