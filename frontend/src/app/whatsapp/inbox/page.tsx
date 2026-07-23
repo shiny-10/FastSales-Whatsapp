@@ -190,11 +190,12 @@ function SendMessagePanel({ onConversationReady }: { onConversationReady: (id: s
       onConversationReady(conversationId);
 
     } catch (e: any) {
-      const detail =
+      const rawErr =
         e?.response?.data?.detail ||
         e?.response?.data?.error ||
         e?.message ||
         "Failed to send.";
+      const detail = typeof rawErr === "object" ? (rawErr.message || (rawErr.error_data ? rawErr.error_data.details : JSON.stringify(rawErr))) : String(rawErr);
       console.error("[SendMessage] error:", e?.response?.data ?? e);
       setStatus(`Error: ${detail}`);
     } finally {
@@ -228,7 +229,7 @@ function SendMessagePanel({ onConversationReady }: { onConversationReady: (id: s
         style={{ border: "1px solid #e0ddf5", background: "#f5f4fb", color: selectedTemplate ? "#1a1040" : "#b0aed0" }}
       >
         <option value="">Select template...</option>
-        {templates.map((t) => (
+        {templates.filter((t) => (t.status || t.meta_status || "").toUpperCase() === "APPROVED").map((t) => (
           <option key={t.id} value={t.template_name}>{t.template_name}</option>
         ))}
       </select>

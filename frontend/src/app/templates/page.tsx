@@ -5,6 +5,7 @@ import { Plus, Edit2, Trash2, RefreshCw, CheckCircle, Clock, XCircle, FileText, 
 import {
   getTemplates, createTemplate, updateTemplate,
   deleteTemplate, syncTemplateStatus, resubmitTemplate, getRecentActivities,
+  syncAllTemplates,
 } from "../../services/templateService";
 
 const card = { background: "#ffffff", border: "1px solid #ece9f8", borderRadius: "14px", boxShadow: "0 1px 6px rgba(100,80,200,0.07)" };
@@ -56,6 +57,26 @@ export default function TemplatesPage() {
     buttons: [] as any[], header_url: null as string | null,
   });
 
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+
+  const handleSyncAll = async () => {
+    setIsSyncingAll(true);
+    try {
+      const res = await syncAllTemplates();
+      if (res.success) {
+        notify("success", res.message || "Synced all templates from Meta!");
+        const [td, ad] = await Promise.all([getTemplates(), getRecentActivities(10)]);
+        setTemplates(td); setRecentActivities(ad);
+      } else {
+        notify("error", res.message || "Failed to sync templates");
+      }
+    } catch (e: any) {
+      notify("error", (e as Error).message || "Sync failed");
+    } finally {
+      setIsSyncingAll(false);
+    }
+  };
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -63,6 +84,12 @@ export default function TemplatesPage() {
         const [td, ad] = await Promise.all([getTemplates(), getRecentActivities(10)]);
         if (!alive) return;
         setTemplates(td); setRecentActivities(ad);
+
+        const res = await syncAllTemplates();
+        if (res?.success && alive) {
+          const freshTemplates = await getTemplates();
+          if (alive) setTemplates(freshTemplates);
+        }
       } catch { }
     })();
     return () => { alive = false; };
@@ -168,11 +195,21 @@ export default function TemplatesPage() {
           <h1 className="text-[22px] font-bold" style={{ color: "#1a1040" }}>Templates</h1>
           <p className="text-sm mt-0.5" style={{ color: "#9390b5" }}>Manage your WhatsApp message templates</p>
         </div>
-        <button onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white"
-          style={{ background: "linear-gradient(90deg,#7c3aed,#4f46e5)", boxShadow: "0 4px 14px rgba(124,58,237,0.3)" }}>
-          <Plus size={14} /> Create Template
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSyncAll}
+            disabled={isSyncingAll}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border border-purple-200 text-purple-700 bg-white hover:bg-purple-50 disabled:opacity-50 transition cursor-pointer"
+          >
+            <RefreshCw size={14} className={isSyncingAll ? "animate-spin" : ""} />
+            {isSyncingAll ? "Syncing Meta..." : "Sync from Meta"}
+          </button>
+          <button onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer"
+            style={{ background: "linear-gradient(90deg,#7c3aed,#4f46e5)", boxShadow: "0 4px 14px rgba(124,58,237,0.3)" }}>
+            <Plus size={14} /> Create Template
+          </button>
+        </div>
       </div>
 
       {/* Stats */}

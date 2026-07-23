@@ -1,28 +1,25 @@
+import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from services.websocket_manager import manager
+from routes.deps import get_current_user_from_ws
 
 router = APIRouter()
 
 
+@router.websocket("/ws")
 @router.websocket("/ws/{org_id}")
-async def websocket_endpoint(websocket: WebSocket, org_id: str):
-    """
-    Raw WebSocket endpoint for real-time inbox events.
-    Auth is intentionally relaxed here — production should validate a token
-    via query param `?token=<jwt>` and verify org ownership.
-    """
-    await manager.connect(org_id, websocket)
+async def websocket_endpoint(websocket: WebSocket, org_id: str | None = None):
+    user = await get_current_user_from_ws(websocket)
+    # Accept connection and manage active sockets
+    await manager.connect(websocket, org_id)
     try:
         while True:
             data = await websocket.receive_text()
             try:
-                import json
                 obj = json.loads(data)
                 event_type = (obj.get("type") or "").lower()
                 if event_type == "typing":
-                    # Broadcast typing to all other clients in this org
-                    await manager.broadcast_to_org(
-                        org_id,
+                    await manager.broadcast(
                         {
                             "type": "typing",
                             "conversation_id": obj.get("conversation_id"),
@@ -32,4 +29,4 @@ async def websocket_endpoint(websocket: WebSocket, org_id: str):
             except Exception:
                 pass
     except WebSocketDisconnect:
-        manager.disconnect(org_id, websocket)
+        manager.disconnect(websocket, org_id)

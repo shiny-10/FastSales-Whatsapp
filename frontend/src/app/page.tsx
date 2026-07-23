@@ -6,6 +6,7 @@ import Messagecharts from "../components/charts/messagecharts";
 import StatsCard from "../components/StatsCard";
 import TemplateDonutChart from "../components/charts/TemplateDonutChart";
 import {
+  getUnifiedDashboard,
   getDashboardSummary,
   getDashboardOverview,
   getCampaigns,
@@ -42,16 +43,23 @@ export default function Home() {
     let alive = true;
     (async () => {
       try {
-        const [d, , , t] = await Promise.all([
-          getDashboardSummary(),
-          getDashboardOverview(),
-          getCampaigns(),
-          getTemplateOverview(),
-        ]);
-        if (!alive) return;
-        setSummary(d);
-        setTemplateOverview(t);
-      } catch { /* silent */ }
+        const unified = await getUnifiedDashboard();
+        if (!alive || !unified) return;
+        if (unified.summary) setSummary((prev) => ({ ...prev, ...unified.summary }));
+        if (unified.templates) setTemplateOverview((prev) => ({ ...prev, ...unified.templates }));
+      } catch {
+        try {
+          const [d, , , t] = await Promise.all([
+            getDashboardSummary(),
+            getDashboardOverview(),
+            getCampaigns(),
+            getTemplateOverview(),
+          ]);
+          if (!alive) return;
+          if (d) setSummary((prev) => ({ ...prev, ...d }));
+          if (t) setTemplateOverview((prev) => ({ ...prev, ...t }));
+        } catch { /* silent */ }
+      }
     })();
     return () => { alive = false; };
   }, []);
@@ -213,7 +221,7 @@ export default function Home() {
             <div>
               <p className="text-xs font-medium" style={{ color: "#9390b5" }}>{m.label}</p>
               <p className="text-[26px] font-bold leading-none tabular-nums mt-0.5" style={{ color: "#1a1040" }}>
-                {m.value.toLocaleString()}
+                {(m.value ?? 0).toLocaleString()}
               </p>
             </div>
           </div>

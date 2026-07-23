@@ -3,36 +3,33 @@ import asyncio
 from typing import Any
 from services.websocket_manager import manager
 
-def _broadcast(organization_id: int, event_name: str, payload: dict):
+def _broadcast(event_name: str, payload: dict, organization_id: int | None = None):
     msg = {
         "type": event_name,
         **payload
     }
     try:
-        # Try to schedule the coroutine in the running event loop
         loop = asyncio.get_running_loop()
-        loop.create_task(manager.broadcast_to_org(str(organization_id), msg))
+        loop.create_task(manager.broadcast(msg))
     except RuntimeError:
-        # If no loop is running in the current thread (e.g. from background thread pool),
-        # use asyncio.run to run it synchronously.
         try:
-            asyncio.run(manager.broadcast_to_org(str(organization_id), msg))
+            asyncio.run(manager.broadcast(msg))
         except Exception:
             pass
 
-def emit_new_message(organization_id: int, conversation_id: int, message: Any):
+def emit_new_message(conversation_id: int, message: Any, organization_id: int | None = None):
     payload = message if isinstance(message, dict) else message.model_dump(mode="json")
-    _broadcast(organization_id, "new_message", {
+    _broadcast("new_message", {
         "conversation_id": conversation_id,
         "message": payload
     })
 
 def emit_message_status(
-    organization_id: int,
     conversation_id: int,
     status_value: str,
     message_id: int | None = None,
     meta_message_id: str | None = None,
+    organization_id: int | None = None,
 ):
     payload = {
         "message_id": message_id,
@@ -40,31 +37,31 @@ def emit_message_status(
         "status": status_value,
         "conversation_id": conversation_id,
     }
-    _broadcast(organization_id, "message_status", payload)
+    _broadcast("message_status", payload)
 
-def emit_new_reaction(organization_id: int, conversation_id: int, reaction: Any):
+def emit_new_reaction(conversation_id: int, reaction: Any, organization_id: int | None = None):
     payload = reaction if isinstance(reaction, dict) else reaction.model_dump(mode="json")
-    _broadcast(organization_id, "new_reaction", {
+    _broadcast("new_reaction", {
         "conversation_id": conversation_id,
         "reaction": payload
     })
 
 def emit_agent_assigned(
-    organization_id: int, conversation_id: int, agent_id: int
+    conversation_id: int, agent_id: int, organization_id: int | None = None
 ):
     payload = {"conversation_id": conversation_id, "agent_id": agent_id}
-    _broadcast(organization_id, "agent_assigned", payload)
+    _broadcast("agent_assigned", payload)
 
-def emit_conversation_update(organization_id: int, conversation_id: int, updates: dict):
+def emit_conversation_update(conversation_id: int, updates: dict, organization_id: int | None = None):
     """Push partial conversation field updates (status, unread_count, etc.) to clients."""
-    _broadcast(organization_id, "conversation_update", {
+    _broadcast("conversation_update", {
         "conversation_id": str(conversation_id),
         **updates,
     })
 
-def emit_message_deleted(organization_id: int, conversation_id: int, message_id: int):
+def emit_message_deleted(conversation_id: int, message_id: int, organization_id: int | None = None):
     """Notify clients that a message was soft-deleted."""
-    _broadcast(organization_id, "message_deleted", {
+    _broadcast("message_deleted", {
         "conversation_id": str(conversation_id),
         "message_id": str(message_id),
     })

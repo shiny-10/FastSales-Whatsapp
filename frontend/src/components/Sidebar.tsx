@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -86,7 +87,7 @@ const SettingsIcon = () => (
   </svg>
 );
 
-const iconMap: Record<string, () => JSX.Element> = {
+const iconMap: Record<string, () => React.ReactNode> = {
   "Dashboard": DashboardIcon,
   "Contacts":  ContactsIcon,
   "Templates": TemplatesIcon,

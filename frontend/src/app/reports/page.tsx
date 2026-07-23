@@ -65,31 +65,35 @@ export default function ReportsPage() {
 
   const maxCampaignTotal = topCampaigns.reduce((max, c) => Math.max(max, c.total ?? 0), 1);
 
+  const deliveryRate = Number(analytics?.delivery_rate) || 0;
+  const readRate = Number(analytics?.read_rate) || 0;
+  const failureRate = Number(analytics?.failure_rate) || 0;
+
   const metrics = [
     {
       label: "Delivery Rate",
-      value: `${analytics.delivery_rate.toFixed(1)}%`,
+      value: `${deliveryRate.toFixed(1)}%`,
       sub: "Messages delivered vs sent",
       color: "#10b981", bg: "rgba(16,185,129,0.10)", barColor: "#10b981",
-      pct: analytics.delivery_rate, icon: CheckCircle,
+      pct: deliveryRate, icon: CheckCircle,
     },
     {
       label: "Read Rate",
-      value: `${analytics.read_rate.toFixed(1)}%`,
+      value: `${readRate.toFixed(1)}%`,
       sub: "Messages read vs delivered",
       color: "#06b6d4", bg: "rgba(6,182,212,0.10)", barColor: "#06b6d4",
-      pct: analytics.read_rate, icon: MessageSquare,
+      pct: readRate, icon: MessageSquare,
     },
     {
       label: "Failure Rate",
-      value: `${analytics.failure_rate.toFixed(1)}%`,
+      value: `${failureRate.toFixed(1)}%`,
       sub: "Messages failed to send",
       color: "#f43f5e", bg: "rgba(244,63,94,0.10)", barColor: "#f43f5e",
-      pct: analytics.failure_rate, icon: TrendingUp,
+      pct: failureRate, icon: TrendingUp,
     },
     {
       label: "Total Reach",
-      value: summary.total_contacts.toLocaleString(),
+      value: (summary?.total_contacts ?? 0).toLocaleString(),
       sub: "Total contacts in system",
       color: "#7c3aed", bg: "rgba(124,58,237,0.10)", barColor: "#7c3aed",
       pct: 100, icon: Users,

@@ -32,22 +32,21 @@ def process_due_messages() -> None:
 
         for msg in due:
             try:
-                # Get the WhatsApp account for this org
                 wa = (
                     db.query(WhatsAppAccount)
-                    .filter(WhatsAppAccount.organization_id == msg.organization_id)
+                    .filter(WhatsAppAccount.status == "ACTIVE")
                     .first()
-                )
+                ) or db.query(WhatsAppAccount).first()
+
                 if not wa or not wa.access_token or not wa.phone_number_id:
                     raise ValueError(
-                        f"No active WhatsApp account for org {msg.organization_id}"
+                        "No active WhatsApp account configured"
                     )
 
                 svc = MessageService(db)
                 message_type = (msg.message_type or "TEXT").upper()
 
                 if message_type == "TEMPLATE" and msg.template_name:
-                    # Send as WhatsApp template message
                     req = SendTemplateMessageRequest(
                         conversation_id=msg.conversation_id,
                         template_name=msg.template_name,
@@ -61,7 +60,6 @@ def process_due_messages() -> None:
                         access_token=wa.access_token,
                     )
                 else:
-                    # Send as plain text message
                     req = SendTextMessageRequest(
                         conversation_id=msg.conversation_id,
                         content=msg.content or "",
@@ -73,9 +71,7 @@ def process_due_messages() -> None:
                         access_token=wa.access_token,
                     )
 
-                # Broadcast to connected clients so inbox updates live
                 socket_svc.emit_new_message(
-                    msg.organization_id,
                     msg.conversation_id,
                     MessageResponse.model_validate(reply),
                 )

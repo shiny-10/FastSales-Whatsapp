@@ -36,8 +36,7 @@ class WhatsAppService:
                     detail="Could not reach Meta API",
                 )
 
-    def connect(self, organization_id: int, request: WhatsAppConnectRequest) -> WhatsAppAccount:
-        # Try to validate — but don't block saving if Meta is unreachable
+    def connect(self, request: WhatsAppConnectRequest) -> WhatsAppAccount:
         display_phone = None
         verified_name = None
         try:
@@ -47,11 +46,9 @@ class WhatsAppService:
             display_phone = phone_data.get("display_phone_number")
             verified_name = phone_data.get("verified_name")
         except Exception:
-            # Validation failed — still save the credentials so user can update them
             pass
 
         account = self.repo.upsert(
-            organization_id=organization_id,
             waba_id=request.waba_id,
             phone_number_id=request.phone_number_id,
             access_token=request.access_token,
@@ -59,16 +56,21 @@ class WhatsAppService:
             verified_name=verified_name,
             status="ACTIVE",
         )
+
+        try:
+            from services.template_service import sync_all_templates_from_meta
+            sync_all_templates_from_meta(self.db)
+        except Exception as e:
+            print(f"[WhatsAppService] Auto template sync warning: {e}")
+
         return account
 
-    def get_account(self, organization_id: int) -> Optional[WhatsAppAccount]:
-        """Return the WhatsApp account for this org. Does NOT validate the token
-        against Meta — token validity is checked only when actually sending."""
-        account = self.repo.get_by_organization(organization_id)
+    def get_account(self) -> Optional[WhatsAppAccount]:
+        account = self.repo.get_active_account()
         return account
 
-    def disconnect(self, organization_id: int) -> bool:
-        account = self.repo.get_by_organization(organization_id)
+    def disconnect(self) -> bool:
+        account = self.repo.get_active_account()
         if not account:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -86,8 +88,8 @@ class WhatsAppRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_organization(self, organization_id: int) -> Optional[WhatsAppAccount]:
-        return self.db.query(WhatsAppAccount).filter(WhatsAppAccount.organization_id == organization_id).first()
+    def get_active_account(self) -> Optional[WhatsAppAccount]:
+        return self.db.query(WhatsAppAccount).filter(WhatsAppAccount.status == "ACTIVE").first() or self.db.query(WhatsAppAccount).first()
 
     def get_by_id(self, account_id: int) -> Optional[WhatsAppAccount]:
         return self.db.query(WhatsAppAccount).filter(WhatsAppAccount.id == account_id).first()
@@ -99,12 +101,6 @@ class WhatsAppRepository:
 
     def get_active_accounts(self) -> list[WhatsAppAccount]:
         return self.db.query(WhatsAppAccount).filter(WhatsAppAccount.status == "ACTIVE").all()
-
-    def get_any_active_account(self) -> Optional[WhatsAppAccount]:
-        return self.db.query(WhatsAppAccount).filter(WhatsAppAccount.status == "ACTIVE").first()
-
-    def get_fallback_account(self) -> Optional[WhatsAppAccount]:
-        return self.get_any_active_account()
 
     def create(self, **kwargs) -> WhatsAppAccount:
         account = WhatsAppAccount(**kwargs)
@@ -130,12 +126,12 @@ class WhatsAppRepository:
             return True
         return False
 
-    def upsert(self, organization_id: int, **kwargs) -> WhatsAppAccount:
-        existing = self.get_by_organization(organization_id)
+    def upsert(self, **kwargs) -> WhatsAppAccount:
+        existing = self.get_active_account()
         if existing:
             for k, v in kwargs.items():
                 setattr(existing, k, v)
             self.db.commit()
             self.db.refresh(existing)
             return existing
-        return self.create(organization_id=organization_id, **kwargs)
+        return self.create(**kwargs)

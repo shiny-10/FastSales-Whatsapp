@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Request
+import json
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import PlainTextResponse
+
 from core.config import settings
 from core.database import SessionLocal
+from core.webhook_security import verify_meta_signature
 from services.webhook_service import WebhookService
 
 router = APIRouter()
@@ -23,16 +26,16 @@ async def verify_webhook(request: Request):
 
 
 @router.post("/webhook")
-async def webhook(request: Request):
+async def webhook(request: Request, raw_body: bytes = Depends(verify_meta_signature)):
     try:
-        data = await request.json()
+        data = json.loads(raw_body.decode("utf-8"))
     except Exception:
         return {"status": "error", "message": "Invalid JSON"}
 
     db = SessionLocal()
     try:
         svc = WebhookService(db)
-        svc.process_payload(data)
+        svc.process_webhook_payload(data)
     except Exception as e:
         print(f"[Webhook] Error processing payload: {e}")
         db.rollback()

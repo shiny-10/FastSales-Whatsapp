@@ -1,24 +1,16 @@
 from __future__ import annotations
+from datetime import datetime
+
 from core.database import SessionLocal
 from models.postgres_model import Campaign, CampaignContact, CampaignRecipient, Contact, MessageLog, Template
 from services.meta_service import MetaWhatsAppService
 from services.whatsapp_service import WhatsAppService
 
-from datetime import datetime
 
-
-def _meta_service_for_org(org_id: int, db) -> MetaWhatsAppService:
-    """
-    Build a MetaWhatsAppService from the DB account for the given org.
-    Raises ValueError if the account is missing or incomplete.
-    Never reads credentials from .env.
-    """
-    account = WhatsAppService(db).get_account(org_id)
+def _meta_service(db) -> MetaWhatsAppService:
+    account = WhatsAppService(db).get_account()
     if not account or not account.access_token or not account.phone_number_id:
-        raise ValueError(
-            f"WhatsApp account for org {org_id} is not configured. "
-            "Go to Settings → Configuration to connect."
-        )
+        raise ValueError("WhatsApp account is not configured. Go to Settings → Configuration to connect.")
     return MetaWhatsAppService(
         access_token=account.access_token,
         phone_number_id=account.phone_number_id,
@@ -26,9 +18,7 @@ def _meta_service_for_org(org_id: int, db) -> MetaWhatsAppService:
 
 
 def process_scheduled_campaigns():
-
     print("Scheduler Tick:", datetime.now())
-
     db = SessionLocal()
 
     try:
@@ -37,23 +27,14 @@ def process_scheduled_campaigns():
         ).all()
 
         for campaign in campaigns:
-
-            print("Campaign ID:", campaign.id)
-            print("Campaign Name:", campaign.campaign_name)
-            print("Schedule Time:", campaign.schedule_time)
-            print("Current Time:", datetime.now())
-            print("-------------------------")
-
             if (
                 campaign.schedule_time
                 and campaign.schedule_time <= datetime.utcnow()
             ):
                 print(f"Running Campaign: {campaign.campaign_name}")
 
-                # Build a fresh service from DB credentials for this org.
-                # Done inside the loop so each campaign uses its own org's account.
                 try:
-                    meta_service = _meta_service_for_org(campaign.organization_id, db)
+                    meta_service = _meta_service(db)
                 except ValueError as e:
                     print(f"Skipping campaign {campaign.id}: {e}")
                     continue
@@ -67,7 +48,6 @@ def process_scheduled_campaigns():
                 ).all()
 
                 for cc in campaign_contacts:
-
                     contact = db.query(Contact).filter(
                         Contact.id == cc.contact_id
                     ).first()
@@ -76,7 +56,7 @@ def process_scheduled_campaigns():
                         continue
 
                     phone = contact.phone_number
-                    message_text = template.template_body
+                    message_text = template.template_body or ""
                     message_text = message_text.replace("{{name}}", contact.name or "")
 
                     result = meta_service.send_text_message(phone, message_text)
@@ -92,7 +72,6 @@ def process_scheduled_campaigns():
                         text=message_text,
                         direction="outgoing",
                         status="sent",
-                        organization_id=campaign.organization_id,
                     )
                     db.add(log)
 
@@ -103,6 +82,19 @@ def process_scheduled_campaigns():
                         message_id=message_id,
                     )
                     db.add(recipient)
+
+                    # ── Record to WhatsApp Inbox for live inbox & incoming reply tracking ──
+                    try:
+                        from services.conversation_service import ConversationService
+                        ConversationService(db).record_outgoing_inbox_message(
+                            customer_phone=phone,
+                            content=message_text,
+                            message_type="TEXT",
+                            meta_message_id=message_id,
+                            customer_name=contact.name if contact else None,
+                        )
+                    except Exception as e:
+                        print(f"[process_scheduled_campaigns] Error recording to inbox: {e}")
 
                 campaign.status = "completed"
 

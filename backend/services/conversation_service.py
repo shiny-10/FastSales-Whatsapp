@@ -3,7 +3,7 @@ from typing import Optional
 from datetime import datetime
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, update
 
 from models.postgres_model import WhatsAppInboxConversation
 from schemas.whatsapp_inbox import (
@@ -21,18 +21,17 @@ class ConversationService:
 
     def get_or_create(
         self,
-        organization_id: int,
         customer_phone: str,
         whatsapp_account_id: Optional[int] = None,
         customer_name: Optional[str] = None,
+        organization_id: Optional[int] = None,
     ) -> tuple[WhatsAppInboxConversation, bool]:
         """Get existing open conversation or create new one."""
-        existing = self.repo.get_by_phone(organization_id, customer_phone)
+        existing = self.repo.get_by_phone(customer_phone)
         if existing:
             return existing, False
 
         conversation = self.repo.create(
-            organization_id=organization_id,
             customer_phone=customer_phone,
             customer_name=customer_name,
             whatsapp_account_id=whatsapp_account_id,
@@ -41,11 +40,52 @@ class ConversationService:
         )
         return conversation, True
 
+    def record_outgoing_inbox_message(
+        self,
+        customer_phone: str,
+        content: str,
+        message_type: str = "TEMPLATE",
+        meta_message_id: Optional[str] = None,
+        customer_name: Optional[str] = None,
+        whatsapp_account_id: Optional[int] = None,
+    ):
+        from models.postgres_model import WhatsAppInboxMessage
+        from services import socket_service
+        from schemas.whatsapp_inbox import MessageResponse
+
+        clean_phone = customer_phone.replace("+", "").replace(" ", "").replace("-", "").strip()
+        inbox_conv, _ = self.get_or_create(
+            customer_phone=clean_phone,
+            customer_name=customer_name,
+            whatsapp_account_id=whatsapp_account_id,
+        )
+
+        inbox_msg = WhatsAppInboxMessage(
+            conversation_id=inbox_conv.id,
+            meta_message_id=meta_message_id,
+            sender_type="AGENT",
+            message_type=message_type,
+            content=content,
+            status="SENT" if meta_message_id else "FAILED",
+        )
+        self.db.add(inbox_msg)
+
+        inbox_conv.last_message_at = datetime.utcnow()
+        inbox_conv.status = "OPEN"
+        self.db.commit()
+        self.db.refresh(inbox_msg)
+
+        try:
+            socket_svc.emit_new_message(inbox_conv.id, MessageResponse.model_validate(inbox_msg))
+        except Exception as e:
+            print(f"[record_outgoing_inbox_message] WebSocket broadcast warning: {e}")
+
+        return inbox_msg
+
     def list_conversations(
-        self, organization_id: int, filters: ConversationFilters
+        self, filters: ConversationFilters, organization_id: Optional[int] = None
     ) -> ConversationListResponse:
         conversations, total = self.repo.list_conversations(
-            organization_id=organization_id,
             status=filters.status,
             search=filters.search,
             assigned_agent_id=filters.assigned_agent_id,
@@ -67,7 +107,6 @@ class ConversationService:
 
             resp = ConversationResponse(
                 id=conv.id,
-                organization_id=conv.organization_id,
                 customer_phone=conv.customer_phone,
                 customer_name=conv.customer_name,
                 assigned_agent_id=conv.assigned_agent_id,
@@ -147,17 +186,35 @@ class ConversationRepository:
         return self.db.query(WhatsAppInboxConversation).filter(WhatsAppInboxConversation.id == conversation_id).first()
 
     def get_by_phone(
-        self, organization_id: int, customer_phone: str
+        self, customer_phone: str, organization_id: Optional[int] = None
     ) -> Optional[WhatsAppInboxConversation]:
-        return (
+        if not customer_phone:
+            return None
+        clean_phone = customer_phone.replace("+", "").replace(" ", "").replace("-", "").strip()
+        last_10 = clean_phone[-10:] if len(clean_phone) >= 10 else clean_phone
+
+        exact = (
             self.db.query(WhatsAppInboxConversation)
             .filter(
-                WhatsAppInboxConversation.organization_id == organization_id,
-                WhatsAppInboxConversation.customer_phone == customer_phone,
-                WhatsAppInboxConversation.status.in_(["OPEN", "PENDING"]),
+                or_(
+                    WhatsAppInboxConversation.customer_phone == clean_phone,
+                    WhatsAppInboxConversation.customer_phone == f"+{clean_phone}",
+                    WhatsAppInboxConversation.customer_phone == customer_phone,
+                )
             )
             .first()
         )
+        if exact:
+            return exact
+
+        all_convs = self.db.query(WhatsAppInboxConversation).all()
+        for conv in all_convs:
+            c_clean = (conv.customer_phone or "").replace("+", "").replace(" ", "").replace("-", "").strip()
+            c_last_10 = c_clean[-10:] if len(c_clean) >= 10 else c_clean
+            if last_10 and (last_10 == c_last_10 or c_clean.endswith(clean_phone) or clean_phone.endswith(c_clean)):
+                return conv
+
+        return None
 
     def create(self, **kwargs) -> WhatsAppInboxConversation:
         conversation = WhatsAppInboxConversation(**kwargs)
@@ -177,17 +234,15 @@ class ConversationRepository:
 
     def list_conversations(
         self,
-        organization_id: int,
         status: Optional[str] = None,
         search: Optional[str] = None,
         assigned_agent_id: Optional[int] = None,
         archived: Optional[bool] = None,
         page: int = 1,
         page_size: int = 20,
+        organization_id: Optional[int] = None,
     ) -> tuple[list[WhatsAppInboxConversation], int]:
-        query = self.db.query(WhatsAppInboxConversation).filter(
-            WhatsAppInboxConversation.organization_id == organization_id
-        )
+        query = self.db.query(WhatsAppInboxConversation)
 
         if status:
             query = query.filter(WhatsAppInboxConversation.status == status)
@@ -218,10 +273,12 @@ class ConversationRepository:
         return conversations, total
 
     def increment_unread(self, conversation_id: int) -> None:
-        conversation = self.get_by_id(conversation_id)
-        if conversation:
-            conversation.unread_count += 1
-            self.db.commit()
+        self.db.execute(
+            update(WhatsAppInboxConversation)
+            .where(WhatsAppInboxConversation.id == conversation_id)
+            .values(unread_count=WhatsAppInboxConversation.unread_count + 1)
+        )
+        self.db.commit()
 
     def reset_unread(self, conversation_id: int) -> None:
         conversation = self.get_by_id(conversation_id)

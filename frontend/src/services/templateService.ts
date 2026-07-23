@@ -17,6 +17,19 @@ export const getTemplates = async () => {
   }
 };
 
+export const syncAllTemplates = async () => {
+  try {
+    const response = await fetch(`${API_URL}/sync-all`, { method: "POST" });
+    if (!response.ok) {
+      throw new Error(`Failed to sync templates: ${response.statusText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error syncing all templates:", error);
+    throw error;
+  }
+};
+
 export const createTemplate = async (template: TemplatePayload | FormData) => {
   try {
     let response: Response;
@@ -34,21 +47,17 @@ export const createTemplate = async (template: TemplatePayload | FormData) => {
       });
     }
 
-    // Parse body even on error so we can show useful messages
     let result: any = {};
     try { result = await response.json(); } catch { /* non-JSON body */ }
 
     if (!response.ok) {
-      // Server-level error (500, 422, etc.)
       throw new Error(result?.error || result?.detail || `Server error ${response.status}`);
     }
 
-    // success: false means template was NOT saved at all
     if (result.success === false) {
       throw new Error(result.error || "Template creation failed");
     }
 
-    // success: true (with optional warning = Meta submission issue, but saved locally)
     return result;
   } catch (error) {
     console.error("Error creating template:", error);
@@ -112,7 +121,6 @@ export const syncTemplateStatus = async (id: string | number) => {
 
     const result = await response.json();
     if (result.success === false) {
-      // Surface the message but don't throw — caller decides how to display it
       return result;
     }
     return result;

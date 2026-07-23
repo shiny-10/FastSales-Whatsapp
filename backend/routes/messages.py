@@ -1,17 +1,32 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Body
+from datetime import datetime
+from typing import List, Optional
+import httpx
+
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status, Body
 from sqlalchemy.orm import Session
-from typing import List
 
 from core.database import SessionLocal
-from services.message_service import MessageService
-from services.whatsapp_service import WhatsAppService
+from core.config import settings as cfg
+from models.postgres_model import (
+    WhatsAppInboxConversation,
+    WhatsAppInboxMessage,
+    WhatsAppInboxMediaFile,
+    WhatsAppAccount,
+)
+from routes.deps import get_current_user
 from schemas.whatsapp_inbox import (
     MessageType,
     SendMessageRequest,
     SendTextMessageRequest,
     SendMediaMessageRequest,
     SendTemplateMessageRequest,
+    ReactionResponse,
 )
+from services.message_service import MessageService
+from services.whatsapp_service import WhatsAppService
+from services.reaction_service import ReactionService
+from services.media_service import MediaService
+import services.socket_service as socket_svc
 
 router = APIRouter(prefix="/inbox/messages", tags=["Inbox Messages"])
 
@@ -44,28 +59,25 @@ def _msg_response(message) -> dict:
 
 
 @router.post("", response_model=dict)
-def create_message(request: Request, payload: dict, db: Session = Depends(get_db)):
+def create_message(
+    payload: dict,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
         req = SendMessageRequest.model_validate(payload)
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    org_id = 1
-    header_org = request.headers.get("x-organization-id")
-    if header_org:
-        try:
-            org_id = int(header_org)
-        except ValueError:
-            pass
-
     wa_service = WhatsAppService(db)
-    account = wa_service.get_account(org_id)
+    account = wa_service.get_account()
     if not account or not account.access_token or not account.phone_number_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="WhatsApp account is not connected. Go to Settings to connect."
+            detail="WhatsApp account is not connected. Go to Settings to connect.",
         )
 
+    agent_id = user.get("id", 1)
     svc = MessageService(db)
     try:
         if req.message_type == MessageType.TEXT:
@@ -75,7 +87,8 @@ def create_message(request: Request, payload: dict, db: Session = Depends(get_db
                 reply_to_message_id=req.reply_to_message_id,
             )
             message = svc.send_text_message(
-                text_req, agent_id=1,
+                text_req,
+                agent_id=agent_id,
                 phone_number_id=account.phone_number_id,
                 access_token=account.access_token,
             )
@@ -90,13 +103,13 @@ def create_message(request: Request, payload: dict, db: Session = Depends(get_db
                 reply_to_message_id=req.reply_to_message_id,
             )
             if req.message_type == MessageType.IMAGE:
-                message = svc.send_image_message(media_req, agent_id=1, phone_number_id=account.phone_number_id, access_token=account.access_token)
+                message = svc.send_image_message(media_req, agent_id=agent_id, phone_number_id=account.phone_number_id, access_token=account.access_token)
             elif req.message_type == MessageType.VIDEO:
-                message = svc.send_video_message(media_req, agent_id=1, phone_number_id=account.phone_number_id, access_token=account.access_token)
+                message = svc.send_video_message(media_req, agent_id=agent_id, phone_number_id=account.phone_number_id, access_token=account.access_token)
             elif req.message_type == MessageType.AUDIO:
-                message = svc.send_audio_message(media_req, agent_id=1, phone_number_id=account.phone_number_id, access_token=account.access_token)
+                message = svc.send_audio_message(media_req, agent_id=agent_id, phone_number_id=account.phone_number_id, access_token=account.access_token)
             else:
-                message = svc.send_document_message(media_req, agent_id=1, phone_number_id=account.phone_number_id, access_token=account.access_token)
+                message = svc.send_document_message(media_req, agent_id=agent_id, phone_number_id=account.phone_number_id, access_token=account.access_token)
         elif req.message_type == MessageType.TEMPLATE:
             template_req = SendTemplateMessageRequest(
                 conversation_id=req.conversation_id,
@@ -104,7 +117,7 @@ def create_message(request: Request, payload: dict, db: Session = Depends(get_db
                 language_code=req.language_code or "en_US",
                 components=req.components,
             )
-            message = svc.send_template_message(template_req, agent_id=1, phone_number_id=account.phone_number_id, access_token=account.access_token)
+            message = svc.send_template_message(template_req, agent_id=agent_id, phone_number_id=account.phone_number_id, access_token=account.access_token)
         else:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported message type")
     except HTTPException:
@@ -115,34 +128,184 @@ def create_message(request: Request, payload: dict, db: Session = Depends(get_db
     return _msg_response(message)
 
 
+@router.post("/send/media-upload")
+async def send_media_upload(
+    request: Request,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    form = await request.form()
+    file: UploadFile = form.get("file")  # type: ignore
+    conversation_id = int(form.get("conversation_id", 0))
+    message_type = (form.get("message_type") or "DOCUMENT").upper()
+    caption = form.get("caption") or None
+
+    if not file or not conversation_id:
+        raise HTTPException(status_code=400, detail="file and conversation_id are required")
+
+    conv = db.query(WhatsAppInboxConversation).filter(
+        WhatsAppInboxConversation.id == conversation_id
+    ).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    wa = db.query(WhatsAppAccount).filter(WhatsAppAccount.status == "ACTIVE").first() or db.query(WhatsAppAccount).first()
+    if not wa or not wa.access_token or not wa.phone_number_id:
+        raise HTTPException(status_code=400, detail="WhatsApp account not connected")
+
+    file_bytes = await file.read()
+    mime_type = file.content_type or "application/octet-stream"
+    filename = file.filename or "upload"
+
+    base = cfg.META_BASE_URL.rstrip("/")
+    version = cfg.META_API_VERSION
+
+    # Step 1: Upload media to Meta
+    upload_url = f"{base}/{version}/{wa.phone_number_id}/media"
+    headers = {"Authorization": f"Bearer {wa.access_token}"}
+
+    with httpx.Client(timeout=60.0) as client:
+        upload_resp = client.post(
+            upload_url,
+            headers=headers,
+            files={"file": (filename, file_bytes, mime_type)},
+            data={"messaging_product": "whatsapp"},
+        )
+        upload_resp.raise_for_status()
+        meta_media_id = upload_resp.json().get("id")
+
+    if not meta_media_id:
+        raise HTTPException(status_code=502, detail="Media upload to Meta failed")
+
+    # Step 2: Send message via Meta
+    type_key = message_type.lower()
+    media_payload: dict = {"id": meta_media_id}
+    if caption and type_key in ("image", "video", "document"):
+        media_payload["caption"] = caption
+    if type_key == "document":
+        media_payload["filename"] = filename
+
+    send_url = f"{base}/{version}/{wa.phone_number_id}/messages"
+    send_payload = {
+        "messaging_product": "whatsapp",
+        "to": conv.customer_phone.replace("+", "").replace(" ", "").replace("-", ""),
+        "type": type_key,
+        type_key: media_payload,
+    }
+
+    with httpx.Client(timeout=30.0) as client:
+        send_resp = client.post(
+            send_url,
+            json=send_payload,
+            headers={**headers, "Content-Type": "application/json"},
+        )
+        send_resp.raise_for_status()
+        meta_msg_id = send_resp.json().get("messages", [{}])[0].get("id")
+
+    # Step 3: Save to DB
+    agent_id = user.get("id", 1)
+    msg = WhatsAppInboxMessage(
+        conversation_id=conversation_id,
+        meta_message_id=meta_msg_id,
+        sender_type="AGENT",
+        sender_id=agent_id,
+        message_type=message_type,
+        content=None,
+        caption=caption,
+        status="SENT",
+    )
+    db.add(msg)
+    db.flush()
+
+    media_file = WhatsAppInboxMediaFile(
+        message_id=msg.id,
+        media_id=meta_media_id,
+        file_name=filename,
+        file_url=None,
+        mime_type=mime_type,
+        file_size=len(file_bytes),
+    )
+    db.add(media_file)
+
+    conv.last_message_at = datetime.utcnow()
+    conv.status = "PENDING"
+    db.commit()
+    db.refresh(msg)
+
+    socket_svc.emit_new_message(conv.id, {
+        "id": str(msg.id),
+        "conversation_id": str(conv.id),
+        "meta_message_id": meta_msg_id,
+        "sender_type": "AGENT",
+        "sender_id": str(agent_id),
+        "message_type": message_type,
+        "content": caption,
+        "caption": caption,
+        "status": "SENT",
+        "is_deleted": False,
+        "reply_to_message_id": None,
+        "media_files": [{
+            "id": str(media_file.id),
+            "media_id": meta_media_id,
+            "file_name": filename,
+            "file_url": None,
+            "mime_type": mime_type,
+            "file_size": len(file_bytes),
+        }],
+        "reactions": [],
+        "created_at": msg.created_at.isoformat() + "Z" if msg.created_at else None,
+    })
+
+    return {
+        "id": str(msg.id),
+        "conversation_id": str(conv.id),
+        "meta_message_id": meta_msg_id,
+        "sender_type": "AGENT",
+        "sender_id": str(agent_id),
+        "message_type": message_type,
+        "content": caption,
+        "caption": caption,
+        "status": "SENT",
+        "is_deleted": False,
+        "reply_to_message_id": None,
+        "media_files": [{
+            "id": str(media_file.id),
+            "media_id": meta_media_id,
+            "file_name": filename,
+            "file_url": None,
+            "mime_type": mime_type,
+            "file_size": len(file_bytes),
+        }],
+        "reactions": [],
+        "created_at": msg.created_at.isoformat() + "Z" if msg.created_at else None,
+    }
+
+
 @router.delete("/{message_id}", response_model=dict)
-def delete_message(message_id: int, db: Session = Depends(get_db)):
-    from models.postgres_model import WhatsAppInboxMessage, WhatsAppInboxConversation
-    import services.socket_service as socket_svc
+def delete_message(
+    message_id: int,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     msg = db.query(WhatsAppInboxMessage).filter(WhatsAppInboxMessage.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
 
-    # Soft-delete: mark as deleted, clear content (like real WhatsApp "Delete for everyone")
     msg.is_deleted = True
     msg.content = None
     msg.caption = None
     db.commit()
 
-    # Get org_id to broadcast
-    conv = db.query(WhatsAppInboxConversation).filter(
-        WhatsAppInboxConversation.id == msg.conversation_id
-    ).first()
-    if conv:
-        socket_svc.emit_message_deleted(conv.organization_id, conv.id, msg.id)
-
+    socket_svc.emit_message_deleted(msg.conversation_id, msg.id)
     return {"id": str(message_id), "deleted": True}
 
 
 @router.delete("", response_model=dict)
-def delete_messages_bulk(ids: List[int] = Body(..., embed=True), db: Session = Depends(get_db)):
-    from models.postgres_model import WhatsAppInboxMessage, WhatsAppInboxConversation
-    import services.socket_service as socket_svc
+def delete_messages_bulk(
+    ids: List[int] = Body(..., embed=True),
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     if not ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No message ids provided")
 
@@ -150,40 +313,22 @@ def delete_messages_bulk(ids: List[int] = Body(..., embed=True), db: Session = D
     if not msgs:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Messages not found")
 
-    # Group by conversation for socket broadcasts
-    conv_msg_map: dict[int, list[int]] = {}
     for m in msgs:
         m.is_deleted = True
         m.content = None
         m.caption = None
-        conv_msg_map.setdefault(m.conversation_id, []).append(m.id)
+        socket_svc.emit_message_deleted(m.conversation_id, m.id)
 
     db.commit()
-
-    # Broadcast each deletion
-    for conv_id, msg_ids in conv_msg_map.items():
-        conv = db.query(WhatsAppInboxConversation).filter(
-            WhatsAppInboxConversation.id == conv_id
-        ).first()
-        if conv:
-            for mid in msg_ids:
-                socket_svc.emit_message_deleted(conv.organization_id, conv.id, mid)
-
     return {"deleted": len(ids), "ids": [str(i) for i in ids]}
 
 
-
-# ── Send Location ─────────────────────────────────────────────────────────────
 @router.post("/location", response_model=dict)
-def send_location(payload: dict, db: Session = Depends(get_db)):
-    """
-    Send a location pin via WhatsApp.
-    Expected: { conversation_id, latitude, longitude, name?, address? }
-    """
-    import httpx
-    from models.postgres_model import WhatsAppInboxConversation, WhatsAppInboxMessage, WhatsAppAccount
-    from datetime import datetime
-
+def send_location(
+    payload: dict,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     conversation_id = int(payload.get("conversation_id", 0))
     latitude = payload.get("latitude")
     longitude = payload.get("longitude")
@@ -199,13 +344,10 @@ def send_location(payload: dict, db: Session = Depends(get_db)):
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    wa = db.query(WhatsAppAccount).filter(
-        WhatsAppAccount.organization_id == conv.organization_id
-    ).first()
+    wa = db.query(WhatsAppAccount).filter(WhatsAppAccount.status == "ACTIVE").first() or db.query(WhatsAppAccount).first()
     if not wa or not wa.access_token or not wa.phone_number_id:
         raise HTTPException(status_code=400, detail="WhatsApp account not connected")
 
-    from core.config import settings as cfg
     base = cfg.META_BASE_URL.rstrip("/")
     version = cfg.META_API_VERSION
     send_url = f"{base}/{version}/{wa.phone_number_id}/messages"
@@ -232,13 +374,13 @@ def send_location(payload: dict, db: Session = Depends(get_db)):
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=502, detail=f"Meta API error: {e.response.text}")
 
-    # Save to DB
+    agent_id = user.get("id", 1)
     content = f"📍 {name or ''} ({latitude}, {longitude})"
     msg = WhatsAppInboxMessage(
         conversation_id=conversation_id,
         meta_message_id=meta_msg_id,
         sender_type="AGENT",
-        sender_id=1,
+        sender_id=agent_id,
         message_type="LOCATION",
         content=content,
         status="SENT",
@@ -249,99 +391,85 @@ def send_location(payload: dict, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(msg)
 
-    import services.socket_service as socket_svc
-    from schemas.whatsapp_inbox import MessageResponse
-    socket_svc.emit_new_message(conv.organization_id, conv.id, MessageResponse.model_validate(msg))
-
+    socket_svc.emit_new_message(conv.id, _msg_response(msg))
     return _msg_response(msg)
 
 
-# ── Send Contact Card (vCard) ─────────────────────────────────────────────────
-@router.post("/contact", response_model=dict)
-def send_contact(payload: dict, db: Session = Depends(get_db)):
-    """
-    Send a contact card via WhatsApp.
-    Expected: { conversation_id, contact_name, phone_number, email? }
-    """
-    import httpx
-    from models.postgres_model import WhatsAppInboxConversation, WhatsAppInboxMessage, WhatsAppAccount
-    from datetime import datetime
+@router.post("/{message_id}/reactions")
+def add_reaction(
+    message_id: int,
+    payload: dict,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    emoji = payload.get("emoji", "")
+    customer_phone = payload.get("customer_phone") or "agent"
 
-    conversation_id = int(payload.get("conversation_id", 0))
-    contact_name = payload.get("contact_name", "").strip()
-    phone_number = payload.get("phone_number", "").strip()
-    email = payload.get("email", "").strip()
-
-    if not conversation_id or not contact_name or not phone_number:
-        raise HTTPException(status_code=400, detail="conversation_id, contact_name and phone_number are required")
-
-    conv = db.query(WhatsAppInboxConversation).filter(
-        WhatsAppInboxConversation.id == conversation_id
-    ).first()
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    wa = db.query(WhatsAppAccount).filter(
-        WhatsAppAccount.organization_id == conv.organization_id
-    ).first()
-    if not wa or not wa.access_token or not wa.phone_number_id:
-        raise HTTPException(status_code=400, detail="WhatsApp account not connected")
-
-    from core.config import settings as cfg
-    base = cfg.META_BASE_URL.rstrip("/")
-    version = cfg.META_API_VERSION
-    send_url = f"{base}/{version}/{wa.phone_number_id}/messages"
-    headers = {"Authorization": f"Bearer {wa.access_token}", "Content-Type": "application/json"}
-
-    # Build Meta contacts payload
-    name_parts = contact_name.split(" ", 1)
-    first_name = name_parts[0]
-    last_name = name_parts[1] if len(name_parts) > 1 else ""
-
-    contact_obj: dict = {
-        "name": {"formatted_name": contact_name, "first_name": first_name, "last_name": last_name},
-        "phones": [{"phone": phone_number, "type": "MOBILE"}],
-    }
-    if email:
-        contact_obj["emails"] = [{"email": email, "type": "WORK"}]
-
-    send_payload = {
-        "messaging_product": "whatsapp",
-        "to": conv.customer_phone.replace("+", "").replace(" ", "").replace("-", ""),
-        "type": "contacts",
-        "contacts": [contact_obj],
-    }
-
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(send_url, json=send_payload, headers=headers)
-            resp.raise_for_status()
-            meta_msg_id = resp.json().get("messages", [{}])[0].get("id")
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=502, detail=f"Meta API error: {e.response.text}")
-
-    # Save to DB
-    content = f"👤 {contact_name} · {phone_number}"
-    if email:
-        content += f" · {email}"
-
-    msg = WhatsAppInboxMessage(
-        conversation_id=conversation_id,
-        meta_message_id=meta_msg_id,
-        sender_type="AGENT",
-        sender_id=1,
-        message_type="CONTACTS",
-        content=content,
-        status="SENT",
+    svc = ReactionService(db)
+    reaction = svc.handle_reaction_by_message_id(
+        message_id=message_id,
+        emoji=emoji,
+        customer_phone=str(customer_phone),
     )
-    db.add(msg)
-    conv.last_message_at = datetime.utcnow()
-    conv.status = "PENDING"
-    db.commit()
-    db.refresh(msg)
+    if reaction is None:
+        return {"id": None, "message_id": message_id, "emoji": "", "customer_phone": customer_phone, "created_at": None}
+    return ReactionResponse.model_validate(reaction).model_dump(mode="json")
 
-    import services.socket_service as socket_svc
-    from schemas.whatsapp_inbox import MessageResponse
-    socket_svc.emit_new_message(conv.organization_id, conv.id, MessageResponse.model_validate(msg))
 
-    return _msg_response(msg)
+@router.get("/{message_id}/reactions")
+def get_reactions(
+    message_id: int,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    svc = ReactionService(db)
+    result = svc.get_reactions_for_message(message_id)
+    return result.model_dump(mode="json")
+
+
+@router.get("/media/{media_file_id}/signed-url")
+def get_signed_media_url(
+    media_file_id: int,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    mf = db.query(WhatsAppInboxMediaFile).filter(
+        WhatsAppInboxMediaFile.id == media_file_id
+    ).first()
+    if not mf:
+        raise HTTPException(status_code=404, detail="Media file not found")
+
+    if mf.s3_key:
+        try:
+            svc = MediaService(db)
+            signed = svc.generate_signed_url(mf.s3_key)
+            return {"signed_url": signed, "expires_in": 3600}
+        except Exception:
+            pass
+
+    if mf.file_url and mf.file_url.startswith("http"):
+        return {"signed_url": mf.file_url, "expires_in": 86400}
+
+    if mf.media_id:
+        try:
+            wa = db.query(WhatsAppAccount).filter(WhatsAppAccount.status == "ACTIVE").first() or db.query(WhatsAppAccount).first()
+            if wa and wa.access_token:
+                base = cfg.META_BASE_URL.rstrip("/")
+                version = cfg.META_API_VERSION
+                headers = {"Authorization": f"Bearer {wa.access_token}"}
+
+                r = httpx.get(
+                    f"{base}/{version}/{mf.media_id}",
+                    headers=headers,
+                    timeout=10,
+                )
+                if r.status_code == 200:
+                    cdn_url = r.json().get("url")
+                    if cdn_url:
+                        mf.file_url = cdn_url
+                        db.commit()
+                        return {"signed_url": cdn_url, "expires_in": 300}
+        except Exception:
+            pass
+
+    raise HTTPException(status_code=404, detail="Media file has no accessible URL.")

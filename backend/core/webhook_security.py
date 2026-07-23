@@ -1,6 +1,7 @@
 import hmac
 import hashlib
 from fastapi import Request, HTTPException, status
+from core.config import settings as config
 
 async def verify_meta_signature(request: Request) -> bytes:
     """

@@ -14,17 +14,13 @@ from routes.templates import router as template_router
 from routes.whatsapp import router as whatsapp_router
 from routes.webhooks import router as webhook_router, verify_webhook, webhook as webhook_post
 from routes.campaign import router as campaign_router
-from routes.conversations import router as conversations_router
 from routes.auto_replies import router as auto_replies_router
 from routes.chatbot_rules import router as chatbot_rules_router
 from routes.contacts import router as contact_router
 from routes.ws import router as ws_router
-
-# ─── WhatsApp Inbox Routers ────────────────────────────────────────────────────
-from routes.inbox_messages import router as inbox_messages_router
 from routes.inbox_conversations import router as inbox_conversations_router
 from routes.messages import router as inbox_thread_messages_router
-from routes.inbox_whatsapp import router as inbox_whatsapp_router
+from routes.inbox_scheduled_messages import router as inbox_scheduled_router
 
 # ─── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -63,8 +59,6 @@ app.include_router(webhook_router,            prefix="/api",                 tag
 app.add_api_route("/webhook", verify_webhook, methods=["GET"], tags=["Webhooks"])
 app.add_api_route("/webhook", webhook_post, methods=["POST"], tags=["Webhooks"])
 app.include_router(campaign_router,           prefix="/api/campaign",        tags=["Campaign"])
-app.include_router(conversations_router,      prefix="/api",                 tags=["Conversations"])
-app.include_router(inbox_messages_router,     prefix="/api",                 tags=["Inbox Messages"])
 app.include_router(auto_replies_router,       prefix="/api",                 tags=["Auto Replies"])
 app.include_router(chatbot_rules_router,      prefix="/api",                 tags=["Chatbot Rules"])
 app.include_router(contact_router,            prefix="/api/contacts",        tags=["Contacts"])
@@ -73,10 +67,6 @@ app.include_router(ws_router)
 # WhatsApp Inbox
 app.include_router(inbox_conversations_router)
 app.include_router(inbox_thread_messages_router)
-app.include_router(inbox_whatsapp_router)
-
-# Scheduled messages
-from routes.inbox_scheduled_messages import router as inbox_scheduled_router
 app.include_router(inbox_scheduled_router)
 
 # ─── Static Files ──────────────────────────────────────────────────────────────
@@ -88,10 +78,7 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 def startup_event():
     print(f"[{settings.APP_NAME}] Starting up...")
 
-    # ── Sync .env → frontend/.env.local ────────────────────────────────────
     _sync_env_to_frontend()
-
-    # ── Sync .env token → whatsapp_accounts DB on every startup ────────────
     _sync_env_token_to_db()
 
     if settings.ENABLE_SCHEDULER:
@@ -102,15 +89,9 @@ def startup_event():
 
 
 def _sync_env_token_to_db():
-    """
-    On first startup (no DB record yet), seed the whatsapp_accounts table
-    from .env so the app works out of the box.
-    If a record already exists, do NOT overwrite it — the UI is the source
-    of truth after the first run.
-    """
-    token    = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN
+    token = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN
     phone_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID
-    waba_id  = settings.META_BUSINESS_ACCOUNT_ID or settings.WABA_ID
+    waba_id = settings.META_BUSINESS_ACCOUNT_ID or settings.WABA_ID
 
     if not token or not phone_id:
         return
@@ -119,16 +100,11 @@ def _sync_env_token_to_db():
     from models.postgres_model import WhatsAppAccount
     db = SessionLocal()
     try:
-        account = db.query(WhatsAppAccount).filter(
-            WhatsAppAccount.organization_id == 1
-        ).first()
+        account = db.query(WhatsAppAccount).first()
         if account:
-            # Record already exists — respect what the user set in the UI
             print("[startup] whatsapp_accounts record exists — keeping UI credentials.")
             return
-        # First run — seed from .env
         new_account = WhatsAppAccount(
-            organization_id=1,
             waba_id=waba_id or "",
             phone_number_id=phone_id,
             access_token=token,
@@ -146,12 +122,7 @@ def _sync_env_token_to_db():
 
 
 def _sync_env_to_frontend():
-    """
-    Sync NEXT_PUBLIC_* values from backend/.env → frontend/.env.local
-    so changing backend/.env + restarting is all you need.
-    """
     from pathlib import Path
-    import re
 
     backend_env = Path(__file__).parent / ".env"
     frontend_env = Path(__file__).parent.parent / "frontend" / ".env.local"
@@ -159,10 +130,8 @@ def _sync_env_to_frontend():
     if not backend_env.exists():
         return
 
-    # Read backend .env
     content = backend_env.read_text(encoding="utf-8")
 
-    # Extract NEXT_PUBLIC_* values
     next_vars: dict[str, str] = {}
     for line in content.splitlines():
         line = line.strip()
@@ -173,11 +142,9 @@ def _sync_env_to_frontend():
     if not next_vars:
         return
 
-    # Also ensure NEXT_PUBLIC_API_BASE matches NEXT_PUBLIC_API_URL
     if "NEXT_PUBLIC_API_URL" in next_vars and "NEXT_PUBLIC_API_BASE" not in next_vars:
         next_vars["NEXT_PUBLIC_API_BASE"] = next_vars["NEXT_PUBLIC_API_URL"]
 
-    # Write / update frontend/.env.local
     try:
         existing: dict[str, str] = {}
         if frontend_env.exists():
@@ -187,7 +154,6 @@ def _sync_env_to_frontend():
                     k, _, v = line.partition("=")
                     existing[k.strip()] = v.strip()
 
-        # Merge — backend values override
         existing.update(next_vars)
 
         lines = ["# Auto-synced from backend/.env on startup — do not edit manually\n"]
@@ -202,7 +168,6 @@ def _sync_env_to_frontend():
 
 @app.on_event("shutdown")
 def shutdown_event():
-    """Clean up resources gracefully on shutdown."""
     close_redis()
     print(f"[{settings.APP_NAME}] Shutdown complete.")
 

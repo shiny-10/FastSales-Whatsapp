@@ -1,12 +1,6 @@
-"""
-REST routes for WhatsApp Inbox Scheduled Messages.
-  GET    /inbox/scheduled-messages          – list (with optional filters)
-  POST   /inbox/scheduled-messages          – create
-  DELETE /inbox/scheduled-messages/{id}     – cancel / delete
-"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -16,10 +10,10 @@ from core.database import SessionLocal
 from models.postgres_model import (
     WhatsAppInboxConversation,
     WhatsAppInboxScheduledMessage,
-    WhatsAppAccount,
     Template,
     Contact,
 )
+from routes.deps import get_current_user
 
 router = APIRouter(prefix="/inbox/scheduled-messages", tags=["Inbox Scheduled Messages"])
 
@@ -35,7 +29,6 @@ def get_db():
 def _serialize(msg: WhatsAppInboxScheduledMessage) -> dict:
     return {
         "id": str(msg.id),
-        "organization_id": msg.organization_id,
         "conversation_id": str(msg.conversation_id),
         "agent_id": msg.agent_id,
         "message_type": msg.message_type,
@@ -47,18 +40,15 @@ def _serialize(msg: WhatsAppInboxScheduledMessage) -> dict:
     }
 
 
-# ── List ───────────────────────────────────────────────────────────────────────
 @router.get("", response_model=dict)
 def list_scheduled_messages(
+    user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
-    organization_id: int = Query(1),
     status_filter: Optional[str] = Query(None, alias="status"),
     page: int = Query(1),
     page_size: int = Query(50),
 ):
-    query = db.query(WhatsAppInboxScheduledMessage).filter(
-        WhatsAppInboxScheduledMessage.organization_id == organization_id
-    )
+    query = db.query(WhatsAppInboxScheduledMessage)
     if status_filter:
         query = query.filter(WhatsAppInboxScheduledMessage.status == status_filter)
 
@@ -78,39 +68,27 @@ def list_scheduled_messages(
     }
 
 
-# ── Create ─────────────────────────────────────────────────────────────────────
 @router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
-def create_scheduled_message(payload: dict, db: Session = Depends(get_db)):
-    """
-    Expected payload:
-    {
-      "organization_id": 1,           # optional, default 1
-      "customer_phone": "+91...",      # required — used to get/create conversation
-      "customer_name": "...",          # optional
-      "message_type": "TEXT|TEMPLATE", # default TEXT
-      "content": "Hello!",             # for TEXT
-      "template_name": "hello_world",  # for TEMPLATE
-      "language_code": "en_US",        # optional
-      "scheduled_at": "2026-07-20T10:00:00Z"  # required ISO8601
-    }
-    """
-    organization_id: int = int(payload.get("organization_id", 1))
+def create_scheduled_message(
+    payload: dict,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     customer_phone: str = payload.get("customer_phone", "").strip()
     customer_name: str | None = payload.get("customer_name")
     message_type: str = (payload.get("message_type") or "TEXT").upper()
     content: str | None = payload.get("content")
     template_name: str | None = payload.get("template_name")
-    language_code: str = payload.get("language_code") or "en_US"
     scheduled_at_raw: str | None = payload.get("scheduled_at")
 
-    # ── Validate ────────────────────────────────────────────────────────────
     if not customer_phone:
         raise HTTPException(status_code=400, detail="customer_phone is required")
     if not scheduled_at_raw:
         raise HTTPException(status_code=400, detail="scheduled_at is required")
 
     try:
-        scheduled_at = datetime.fromisoformat(scheduled_at_raw.replace("Z", "+00:00")).replace(tzinfo=None)
+        dt = datetime.fromisoformat(scheduled_at_raw.replace("Z", "+00:00"))
+        scheduled_at = dt.astimezone(timezone.utc).replace(tzinfo=None)
     except ValueError:
         raise HTTPException(status_code=400, detail="scheduled_at must be a valid ISO8601 datetime")
 
@@ -122,24 +100,18 @@ def create_scheduled_message(payload: dict, db: Session = Depends(get_db)):
     if message_type == "TEMPLATE" and not template_name:
         raise HTTPException(status_code=400, detail="template_name is required for TEMPLATE messages")
 
-    # ── Get or create inbox conversation ────────────────────────────────────
     conv = (
         db.query(WhatsAppInboxConversation)
-        .filter(
-            WhatsAppInboxConversation.organization_id == organization_id,
-            WhatsAppInboxConversation.customer_phone == customer_phone,
-        )
+        .filter(WhatsAppInboxConversation.customer_phone == customer_phone)
         .first()
     )
     if not conv:
-        # Try to get customer name from contacts table
         if not customer_name:
             contact = db.query(Contact).filter(Contact.phone_number == customer_phone).first()
             if contact:
                 customer_name = contact.name
 
         conv = WhatsAppInboxConversation(
-            organization_id=organization_id,
             customer_phone=customer_phone,
             customer_name=customer_name,
             status="OPEN",
@@ -151,7 +123,6 @@ def create_scheduled_message(payload: dict, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(conv)
 
-    # ── Resolve template body for display ───────────────────────────────────
     display_content = content
     if message_type == "TEMPLATE" and template_name:
         tmpl = (
@@ -163,11 +134,10 @@ def create_scheduled_message(payload: dict, db: Session = Depends(get_db)):
         if tmpl and tmpl.template_body:
             display_content = tmpl.template_body
 
-    # ── Persist ─────────────────────────────────────────────────────────────
+    agent_id = user.get("id", 1)
     msg = WhatsAppInboxScheduledMessage(
-        organization_id=organization_id,
         conversation_id=conv.id,
-        agent_id=1,
+        agent_id=agent_id,
         message_type=message_type,
         content=display_content,
         template_name=template_name,
@@ -185,9 +155,12 @@ def create_scheduled_message(payload: dict, db: Session = Depends(get_db)):
     }
 
 
-# ── Cancel / Delete ────────────────────────────────────────────────────────────
 @router.delete("/{message_id}", response_model=dict)
-def cancel_scheduled_message(message_id: int, db: Session = Depends(get_db)):
+def cancel_scheduled_message(
+    message_id: int,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     msg = db.query(WhatsAppInboxScheduledMessage).filter(
         WhatsAppInboxScheduledMessage.id == message_id
     ).first()

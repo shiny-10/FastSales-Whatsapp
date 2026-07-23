@@ -1,518 +1,207 @@
-from core.config import settings
-from fastapi import APIRouter, Depends
-from fastapi import Body, Request
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from services.meta_service import MetaWhatsAppService
-from services.whatsapp_service import WhatsAppService
-from fastapi import HTTPException
-from schemas.whatsapp_inbox import WhatsAppConnectRequest
-from routes.deps import get_meta_service
+from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
-from models.postgres_model import Contact, Conversation, ConversationMessage, MessageLog
-from datetime import datetime
-import asyncio
-from services.websocket_manager import manager
+from models.postgres_model import Contact, MessageLog, WhatsAppAccount
+from routes.deps import get_current_user
+from schemas.whatsapp_inbox import WhatsAppConnectRequest
+from services.meta_service import MetaWhatsAppService
+from services.whatsapp_service import WhatsAppService
 
 router = APIRouter()
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 
 class MessageRequest(BaseModel):
     to: str
     template_name: str
 
+
 @router.post("/send")
-def send_message(data: MessageRequest, request: Request):
-    db = SessionLocal()
+def send_message(
+    data: MessageRequest,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    account = db.query(WhatsAppAccount).filter(WhatsAppAccount.status == "ACTIVE").first() or db.query(WhatsAppAccount).first()
+    if not account or not account.access_token or not account.phone_number_id:
+        return {
+            "success": False,
+            "error": "WhatsApp account is not configured. Go to Settings → Configuration to connect your account.",
+        }
+
+    svc = MetaWhatsAppService(account.access_token, account.phone_number_id)
+
+    from models.postgres_model import Template
+    tmpl = db.query(Template).filter(Template.template_name == data.template_name).first()
+    language_code = (tmpl.language or "en_US") if tmpl else "en_US"
+
+    result = svc.send_template_message(
+        data.to,
+        data.template_name,
+        language_code=language_code,
+    )
+
+    if isinstance(result, dict) and result.get("success") is False:
+        meta_err = result.get("error")
+        if isinstance(meta_err, dict):
+            err_msg = (
+                meta_err.get("error_user_msg")
+                or meta_err.get("message")
+                or (meta_err.get("error_data") or {}).get("details")
+                or str(meta_err)
+            )
+        else:
+            err_msg = str(meta_err)
+        return {
+            "success": False,
+            "error": err_msg,
+            "meta_response": result,
+        }
+
+    msg_log = MessageLog(
+        message_id=(result.get("id") if isinstance(result, dict) else None),
+        phone_number=data.to,
+        text=data.template_name,
+        direction="outgoing",
+        status="sent",
+    )
+    db.add(msg_log)
+    db.commit()
+    db.refresh(msg_log)
+
+    # ── Populate WhatsApp Inbox models for live inbox UI ──
     try:
-        # ── Resolve credentials: DB (whatsapp_accounts) takes priority over .env ──
-        # This ensures the Settings page "Update Connection" is always effective.
-        from models.postgres_model import WhatsAppAccount as WAAccount
-        try:
-            org_header = request.headers.get("X-Organization-Id")
-            org_id_for_lookup = int(org_header) if org_header else 1
-        except Exception:
-            org_id_for_lookup = 1
+        clean_phone = data.to.replace("+", "").replace(" ", "").replace("-", "").strip()
+        from services.conversation_service import ConversationService
+        from models.postgres_model import WhatsAppInboxMessage
+        from services import socket_service
+        from schemas.whatsapp_inbox import MessageResponse
 
-        db_account = db.query(WAAccount).filter(
-            WAAccount.organization_id == org_id_for_lookup
-        ).first()
-
-        if db_account and db_account.access_token and db_account.phone_number_id:
-            resolved_token    = db_account.access_token
-            resolved_phone_id = db_account.phone_number_id
-        else:
-            return {
-                "success": False,
-                "error": "WhatsApp account is not configured. Go to Settings → Configuration to connect your account.",
-            }
-
-        if not resolved_token or not resolved_phone_id:
-            return {
-                "success": False,
-                "error": "WhatsApp account credentials are missing. Go to Settings → Configuration.",
-            }
-
-        svc = MetaWhatsAppService(resolved_token, resolved_phone_id)
-
-        # Look up template language from DB — fall back to "en_US" if not found
-        from models.postgres_model import Template
-        tmpl = db.query(Template).filter(
-            Template.template_name == data.template_name
-        ).first()
-        language_code = (tmpl.language or "en_US") if tmpl else "en_US"
-
-        result = svc.send_template_message(
-            data.to,
-            data.template_name,
-            language_code=language_code,
+        conv_svc = ConversationService(db)
+        inbox_conv, _ = conv_svc.get_or_create(
+            customer_phone=clean_phone,
+            customer_name=contact.name if contact else None,
+            whatsapp_account_id=account.id,
         )
 
-        if isinstance(result, dict) and result.get("success") is False:
-            return {
-                "success": False,
-                "error": result.get("error", "WhatsApp send failed"),
-                "meta_response": result,
-            }
+        meta_msg_id = result.get("id") if isinstance(result, dict) else None
+        template_body_text = tmpl.template_body if (tmpl and tmpl.template_body) else f"[Template: {data.template_name}]"
 
-        org_id = org_id_for_lookup
-
-        msg_log = MessageLog(
-            message_id=(result.get('id') if isinstance(result, dict) else None),
-            phone_number=data.to,
-            text=data.template_name,
-            direction="outgoing",
-            status="sent",
-            organization_id=org_id,
-        )
-        db.add(msg_log)
-        db.commit()
-        db.refresh(msg_log)
-
-        # Try to find contact by phone
-        contact = db.query(Contact).filter(Contact.phone_number == data.to).first()
-        contact_id = contact.id if contact else None
-
-        # Find or create OLD conversation (legacy system)
-        conv = None
-        if contact_id:
-            conv = db.query(Conversation).filter(Conversation.contact_id == contact_id).first()
-        if not conv:
-            conv = db.query(Conversation).filter(Conversation.customer_phone == data.to).first()
-        if not conv:
-            conv = Conversation(
-                contact_id=contact_id,
-                customer_phone=data.to,
-                customer_name=(contact.name if contact else None),
-                status="OPEN",
-                organization_id=org_id,
-                last_message_at=datetime.utcnow(),
-            )
-            db.add(conv)
-            db.commit()
-            db.refresh(conv)
-        else:
-            conv.last_message_at = datetime.utcnow()
-            db.commit()
-
-        # Add conversation message (legacy)
-        conv_msg = ConversationMessage(
-            conversation_id=conv.id,
-            message_log_id=msg_log.id,
-            direction="outgoing",
-            message_type="template",
-            text=data.template_name,
-            provider_message_id=(result.get('id') if isinstance(result, dict) else None),
-        )
-        db.add(conv_msg)
-        db.commit()
-        db.refresh(conv_msg)
-
-        # ── Inbox system: get-or-create WhatsAppInboxConversation ──────────────
-        from models.postgres_model import WhatsAppInboxConversation, WhatsAppInboxMessage as InboxMessage
-        inbox_conv = db.query(WhatsAppInboxConversation).filter(
-            WhatsAppInboxConversation.customer_phone == data.to,
-            WhatsAppInboxConversation.organization_id == org_id,
-        ).first()
-        if not inbox_conv:
-            inbox_conv = WhatsAppInboxConversation(
-                organization_id=org_id,
-                customer_phone=data.to,
-                customer_name=(contact.name if contact else None),
-                status="OPEN",
-                is_archived=False,
-                unread_count=0,
-                last_message_at=datetime.utcnow(),
-            )
-            db.add(inbox_conv)
-            db.commit()
-            db.refresh(inbox_conv)
-        else:
-            inbox_conv.last_message_at = datetime.utcnow()
-            db.commit()
-
-        # Save template message in inbox messages
-        # ── Resolve template body for display ──────────────────────────────
-        template_body = data.template_name  # safe fallback
-        try:
-            tmpl_body_row = db.query(Template).filter(
-                Template.template_name == data.template_name
-            ).order_by(Template.id.desc()).first()
-            if tmpl_body_row and tmpl_body_row.template_body:
-                template_body = tmpl_body_row.template_body
-        except Exception:
-            pass
-
-        meta_msg_id = result.get("messages", [{}])[0].get("id") if isinstance(result, dict) else None
-        inbox_msg = InboxMessage(
+        inbox_msg = WhatsAppInboxMessage(
             conversation_id=inbox_conv.id,
             meta_message_id=meta_msg_id,
             sender_type="AGENT",
-            sender_id=1,
             message_type="TEMPLATE",
-            content=template_body,   # ← full body, not just the name
-            status="SENT",
+            content=template_body_text,
+            status="SENT" if meta_msg_id else "FAILED",
         )
         db.add(inbox_msg)
 
-        # Also update conversation last_message_preview and set PENDING
         inbox_conv.last_message_at = datetime.utcnow()
-        inbox_conv.status = "PENDING"
+        inbox_conv.status = "OPEN"
         db.commit()
         db.refresh(inbox_msg)
 
-        # Broadcast new message to org clients (send full body so chat shows it instantly)
         try:
-            loop = asyncio.get_event_loop()
-            loop.create_task(manager.broadcast_to_org(str(org_id), {
-                "type": "new_message",
-                "conversation_id": inbox_conv.id,
-                "message": {
-                    "id": str(inbox_msg.id),
-                    "conversation_id": str(inbox_conv.id),
-                    "meta_message_id": inbox_msg.meta_message_id,
-                    "sender_type": inbox_msg.sender_type,
-                    "sender_id": str(inbox_msg.sender_id) if inbox_msg.sender_id else None,
-                    "message_type": inbox_msg.message_type,
-                    "content": template_body,
-                    "caption": None,
-                    "status": inbox_msg.status,
-                    "is_deleted": False,
-                    "reply_to_message_id": None,
-                    "media_files": [],
-                    "reactions": [],
-                    "created_at": inbox_msg.created_at.isoformat() + "Z" if inbox_msg.created_at else None,
-                }
-            }))
-        except Exception:
-            pass
-
-        return {
-            "success": True,
-            "meta_response": result,
-            "conversation_id": str(inbox_conv.id),
-            "inbox_conversation_id": str(inbox_conv.id),
-            "message_id": str(inbox_msg.id),
-            "message": {
-                "id": str(inbox_msg.id),
-                "conversation_id": str(inbox_conv.id),
-                "meta_message_id": inbox_msg.meta_message_id,
-                "sender_type": "AGENT",
-                "sender_id": "1",
-                "message_type": "TEMPLATE",
-                "content": template_body,
-                "caption": None,
-                "status": "SENT",
-                "is_deleted": False,
-                "reply_to_message_id": None,
-                "media_files": [],
-                "reactions": [],
-                "created_at": inbox_msg.created_at.isoformat() + "Z" if inbox_msg.created_at else None,
-            },
-        }
+            socket_svc.emit_new_message(inbox_conv.id, MessageResponse.model_validate(inbox_msg))
+        except Exception as e:
+            print(f"[send_message] Socket broadcast warning: {e}")
     except Exception as e:
-        db.rollback()
-        return {"success": False, "error": str(e)}
-    finally:
-        db.close()
+        print(f"[send_message] Error creating inbox message record: {e}")
 
-@router.get("/info")
-def get_whatsapp_info(
-    request: Request,
-    meta_svc: MetaWhatsAppService = Depends(get_meta_service),
-):
-    result = meta_svc.get_phone_number_info()
-    if result.get("success") is False:
-        return {
-            "success": False,
-            "error": result.get("error", "Failed to fetch WhatsApp info"),
-        }
-    return {
-        "success": True,
-        "phone_number": result.get("display_phone_number"),
-        "phone_number_id": meta_svc.phone_number_id,
-    }
-
-@router.get("/settings")
-def get_whatsapp_settings(request: Request):
-    # log incoming request info for debugging
-    print("GET /api/whatsapp/settings called")
-    # Resolve org_id
-    try:
-        org_id = int(request.headers.get("X-Organization-Id") or 1)
-    except Exception:
-        org_id = 1
-
-    # Build default settings and merge persisted values from DB if any
-    from core.database import SessionLocal
-    from models.postgres_model import WhatsAppSettings
-
-    settings_dict = _build_settings(org_id)
-    db = None
-    try:
-        db = SessionLocal()
-        record = db.query(WhatsAppSettings).first()
-        if record:
-            p = record.to_dict()
-            for k, v in p.items():
-                if v is not None and k in settings_dict:
-                    settings_dict[k] = v
-    except Exception as e:
-        # Log DB error but return default settings so UI can still load
-        print("Warning: failed to read whatsapp_settings from DB:", e)
-    finally:
-        if db:
-            db.close()
-
-    return {"success": True, "settings": settings_dict}
-
-def _build_settings(org_id: int = 1):
-    """Build the settings dict from DB credentials (never from .env globals)."""
-    from core.database import SessionLocal
-    from models.postgres_model import MessageLog
-    from datetime import datetime, timedelta
-    from services.whatsapp_service import WhatsAppService
-
-    # Resolve phone info from DB account
-    db = SessionLocal()
-    phone_display = ""
-    waba_id_val = ""
-    phone_number_id_val = ""
-    try:
-        account = WhatsAppService(db).get_account(org_id)
-        if account and account.access_token and account.phone_number_id:
-            svc = MetaWhatsAppService(
-                access_token=account.access_token,
-                phone_number_id=account.phone_number_id,
-            )
-            result = svc.get_phone_number_info()
-            phone_display = result.get("display_phone_number", "") if isinstance(result, dict) else ""
-            waba_id_val = account.waba_id or ""
-            phone_number_id_val = account.phone_number_id or ""
-    except Exception:
-        pass
-    finally:
-        db.close()
-
-    # Message usage in last 24 h
-    used = 0
-    db2 = SessionLocal()
-    try:
-        since = datetime.utcnow() - timedelta(hours=24)
-        used = db2.query(MessageLog).filter(MessageLog.created_at >= since).count()
-    except Exception:
-        pass
-    finally:
-        db2.close()
-
-    return {
-        "waba_id": waba_id_val,
-        "waba_name": "FastSales CRM",
-        "phone_display_name": phone_display,
-        "phone_number": phone_display,
-        "phone_quality": "High Quality",
-        "status": "Connected" if phone_display else "Disconnected",
-        "meta_business_account_id": "",
-        "business_account_name": "FastSales Technologies",
-        "connected_by": "admin@fastsales.com",
-        "connected_on": "12 Jun 2026, 10:15 AM",
-        "access_token_masked": "************",
-        "token_expires_on": "26 Jun 2026, 10:15 AM",
-        "current_limit_24h": 1000,
-        "used_in_24h": used,
-        "webhook_url": "https://your-domain.com/webhook/whatsapp",
-        "webhook_token": "fastsales_webhook_token_123",
-        "webhook_status": "Active",
-        "last_ping": "29 Jun 2026, 10:22 AM",
-        "subscribed_events": ["messages", "message_status", "delivery", "read", "account_alerts"],
-    }
-
-@router.put("/settings")
-def update_whatsapp_settings(request: Request, payload: dict = Body(...)):
-    print("PUT /api/whatsapp/settings called with payload keys:", list(payload.keys()))
-    try:
-        org_id = int(request.headers.get("X-Organization-Id") or 1)
-    except Exception:
-        org_id = 1
-
-    # Persist partial updates to the whatsapp_settings table
-    from core.database import SessionLocal
-    from models.postgres_model import WhatsAppSettings
-    db = SessionLocal()
-    try:
-        record = db.query(WhatsAppSettings).first()
-        if not record:
-            record = WhatsAppSettings()
-            db.add(record)
-
-        # Only update known fields
-        for k, v in payload.items():
-            if hasattr(record, k):
-                setattr(record, k, v)
-
-        db.commit()
-        db.refresh(record)
-        # Build merged settings to return
-        base = _build_settings(org_id)
-        p = record.to_dict()
-        for k, v in p.items():
-            if v is not None and k in base:
-                base[k] = v
-
-        return {"success": True, "settings": base}
-    except Exception as e:
-        db.rollback()
-        return {"success": False, "error": str(e)}
-    finally:
-        db.close()
-
-@router.post("/actions/rotate-token")
-def rotate_token():
-    # Placeholder - rotation requires administrative steps
-    return {"success": True, "message": "Token rotated (placeholder)"}
-
-@router.post("/actions/disconnect")
-def disconnect_account():
-    # Placeholder for disconnecting Meta account
-    return {"success": True, "message": "Disconnected (placeholder)"}
-
-@router.get("/activity-logs")
-def get_activity_logs(limit: int = 25):
-    from core.database import SessionLocal
-    from models.postgres_model import MessageLog
-
-    db = SessionLocal()
-    try:
-        logs = db.query(MessageLog).order_by(MessageLog.created_at.desc()).limit(limit).all()
-        result = []
-        for l in logs:
-            result.append({
-                "id": l.id,
-                "phone_number": l.phone_number,
-                "message": l.text,
-                "status": l.status,
-                "direction": l.direction,
-                "time": l.created_at.isoformat() + "Z" if l.created_at else None,
-            })
-    finally:
-        db.close()
-
-    return {"success": True, "logs": result}
+    return {"success": True, "result": result, "message_id": msg_log.id}
 
 
-# --- Account management endpoints for frontend hooks ---
 @router.post("/connect")
-def connect_whatsapp(payload: WhatsAppConnectRequest, request: Request):
-    db = SessionLocal()
+def connect_whatsapp(
+    payload: WhatsAppConnectRequest,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
         svc = WhatsAppService(db)
-        # organization id may come from header or default to 1
-        try:
-            org_id = int(request.headers.get("X-Organization-Id") or 1)
-        except Exception:
-            org_id = 1
-
-        account = svc.connect(org_id, payload)
-        return {"success": True, "account": {
-            "id": account.id,
-            "organization_id": account.organization_id,
-            "waba_id": account.waba_id,
-            "phone_number_id": account.phone_number_id,
-            "display_phone_number": account.display_phone_number,
-            "verified_name": account.verified_name,
-            "status": account.status,
-        }}
+        account = svc.connect(payload)
+        return {
+            "success": True,
+            "account": {
+                "id": account.id,
+                "waba_id": account.waba_id,
+                "phone_number_id": account.phone_number_id,
+                "display_phone_number": account.display_phone_number,
+                "verified_name": account.verified_name,
+                "status": account.status,
+            },
+        }
     except HTTPException as e:
         return {"success": False, "error": str(e.detail)}
     except Exception as e:
         return {"success": False, "error": str(e)}
-    finally:
-        db.close()
-
-
-@router.get("/env-credentials")
-def get_env_credentials():
-    """
-    Returns the WhatsApp credentials currently set in .env
-    so the Settings page can auto-populate when .env is updated.
-    """
-    token = settings.META_ACCESS_TOKEN or settings.ACCESS_TOKEN or ""
-    phone_id = settings.META_WHATSAPP_PHONE_NUMBER_ID or settings.PHONE_NUMBER_ID or ""
-    waba_id = settings.META_BUSINESS_ACCOUNT_ID or settings.WABA_ID or ""
-
-    return {
-        "waba_id": waba_id,
-        "phone_number_id": phone_id,
-        "access_token": token,
-        "has_token": bool(token),
-        "has_phone_id": bool(phone_id),
-    }
 
 
 @router.get("/account")
-def get_account(request: Request):
-    db = SessionLocal()
+def get_account(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        try:
-            org_id = int(request.headers.get("X-Organization-Id") or 1)
-        except Exception:
-            org_id = 1
-
         svc = WhatsAppService(db)
-        account = svc.get_account(org_id)
+        account = svc.get_account()
         if not account:
             return {"connected": False, "account": None, "message": "No WhatsApp account connected"}
 
-        return {"connected": True, "account": {
-            "id": account.id,
-            "organization_id": account.organization_id,
-            "waba_id": account.waba_id,
-            "phone_number_id": account.phone_number_id,
-            "display_phone_number": account.display_phone_number,
-            "verified_name": account.verified_name,
-            "status": account.status,
-        }, "message": "Account connected"}
+        return {
+            "connected": True,
+            "account": {
+                "id": account.id,
+                "waba_id": account.waba_id,
+                "phone_number_id": account.phone_number_id,
+                "display_phone_number": account.display_phone_number,
+                "verified_name": account.verified_name,
+                "status": account.status,
+            },
+            "message": "Account connected",
+        }
     except Exception as e:
         return {"connected": False, "account": None, "message": str(e)}
-    finally:
-        db.close()
 
 
 @router.delete("/disconnect")
-def disconnect_account(request: Request):
-    db = SessionLocal()
+def disconnect_account(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        try:
-            org_id = int(request.headers.get("X-Organization-Id") or 1)
-        except Exception:
-            org_id = 1
-
         svc = WhatsAppService(db)
-        svc.disconnect(org_id)
+        svc.disconnect()
         return {"success": True, "message": "Disconnected"}
     except HTTPException as e:
         return {"success": False, "error": str(e.detail)}
     except Exception as e:
         return {"success": False, "error": str(e)}
-    finally:
-        db.close()
 
+
+@router.get("/status")
+def get_status(
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    account = db.query(WhatsAppAccount).filter(WhatsAppAccount.status == "ACTIVE").first() or db.query(WhatsAppAccount).first()
+    if not account:
+        return {"connected": False, "status": "DISCONNECTED"}
+    return {
+        "connected": account.status == "ACTIVE",
+        "status": account.status,
+        "phone_number_id": account.phone_number_id,
+        "display_phone_number": account.display_phone_number,
+    }

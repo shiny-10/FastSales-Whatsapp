@@ -47,7 +47,6 @@ class WhatsAppConnectRequest(BaseModel):
 
 class WhatsAppAccountResponse(BaseModel):
     id: int
-    organization_id: int
     waba_id: str
     phone_number_id: str
     display_phone_number: Optional[str] = None
@@ -215,7 +214,6 @@ class MessageUpdateRequest(BaseModel):
 
 class ConversationResponse(BaseModel):
     id: int
-    organization_id: int
     customer_phone: str
     customer_name: Optional[str] = None
     assigned_agent_id: Optional[int] = None
@@ -273,7 +271,6 @@ class BroadcastUpdate(BaseModel):
 
 class BroadcastResponse(BaseModel):
     id: int
-    organization_id: int
     name: str
     message: str
     recipients: list[str]
@@ -298,7 +295,6 @@ class ScheduledMessageCreate(BaseModel):
 
 class ScheduledMessageResponse(BaseModel):
     id: int
-    organization_id: int
     conversation_id: int
     agent_id: Optional[int] = None
     message_type: str
@@ -327,7 +323,6 @@ class AutoReplyUpdate(BaseModel):
 
 class AutoReplyResponse(BaseModel):
     id: int
-    organization_id: int
     name: str
     message: str
     is_active: bool
@@ -354,7 +349,6 @@ class ChatbotRuleUpdate(BaseModel):
 
 class ChatbotRuleResponse(BaseModel):
     id: int
-    organization_id: int
     keyword: str
     response: str
     is_active: bool
@@ -376,7 +370,6 @@ class CannedResponseUpdate(BaseModel):
 
 class CannedResponseResponse(BaseModel):
     id: int
-    organization_id: int
     shortcut: str
     content: str
     created_at: datetime

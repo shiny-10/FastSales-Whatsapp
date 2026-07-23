@@ -34,7 +34,7 @@ export default function StatsCard({
           {title}
         </p>
         <p className="text-[28px] font-bold leading-none tabular-nums" style={{ color: "#1a1040" }}>
-          {typeof value === "number" ? value.toLocaleString() : value}
+          {typeof value === "number" ? value.toLocaleString() : (value ?? 0)}
         </p>
         {change && (
           <p className="text-[11px] mt-2 font-medium" style={{ color: trend === "up" ? "#10b981" : "#f43f5e" }}>

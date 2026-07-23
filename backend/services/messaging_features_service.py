@@ -12,23 +12,22 @@ class AutoReplyService:
     def __init__(self, db: Session):
         self.db = db
 
-    def list(self, organization_id: int) -> list[WhatsAppInboxAutoReply]:
+    def list(self) -> list[WhatsAppInboxAutoReply]:
         return (
             self.db.query(WhatsAppInboxAutoReply)
-            .filter(WhatsAppInboxAutoReply.organization_id == organization_id)
             .order_by(WhatsAppInboxAutoReply.created_at)
             .all()
         )
 
-    def get_active(self, organization_id: int) -> list[WhatsAppInboxAutoReply]:
+    def get_active(self) -> list[WhatsAppInboxAutoReply]:
         return (
             self.db.query(WhatsAppInboxAutoReply)
-            .filter(WhatsAppInboxAutoReply.organization_id == organization_id, WhatsAppInboxAutoReply.is_active == True)
+            .filter(WhatsAppInboxAutoReply.is_active == True)
             .all()
         )
 
-    def create(self, organization_id: int, **kwargs) -> WhatsAppInboxAutoReply:
-        obj = WhatsAppInboxAutoReply(organization_id=organization_id, **kwargs)
+    def create(self, **kwargs) -> WhatsAppInboxAutoReply:
+        obj = WhatsAppInboxAutoReply(**kwargs)
         self.db.add(obj)
         self.db.commit()
         self.db.refresh(obj)
@@ -53,24 +52,23 @@ class ChatbotRuleService:
     def __init__(self, db: Session):
         self.db = db
 
-    def list(self, organization_id: int) -> list[WhatsAppInboxChatbotRule]:
+    def list(self) -> list[WhatsAppInboxChatbotRule]:
         return (
             self.db.query(WhatsAppInboxChatbotRule)
-            .filter(WhatsAppInboxChatbotRule.organization_id == organization_id)
             .order_by(WhatsAppInboxChatbotRule.priority.desc())
             .all()
         )
 
-    def get_active(self, organization_id: int) -> list[WhatsAppInboxChatbotRule]:
+    def get_active(self) -> list[WhatsAppInboxChatbotRule]:
         return (
             self.db.query(WhatsAppInboxChatbotRule)
-            .filter(WhatsAppInboxChatbotRule.organization_id == organization_id, WhatsAppInboxChatbotRule.is_active == True)
+            .filter(WhatsAppInboxChatbotRule.is_active == True)
             .order_by(WhatsAppInboxChatbotRule.priority.desc())
             .all()
         )
 
-    def create(self, organization_id: int, **kwargs) -> WhatsAppInboxChatbotRule:
-        obj = WhatsAppInboxChatbotRule(organization_id=organization_id, **kwargs)
+    def create(self, **kwargs) -> WhatsAppInboxChatbotRule:
+        obj = WhatsAppInboxChatbotRule(**kwargs)
         self.db.add(obj)
         self.db.commit()
         self.db.refresh(obj)
@@ -108,25 +106,24 @@ class CannedResponseService:
     def __init__(self, db: Session):
         self.db = db
 
-    def list(self, organization_id: int) -> list[WhatsAppInboxCannedResponse]:
+    def list(self) -> list[WhatsAppInboxCannedResponse]:
         return (
             self.db.query(WhatsAppInboxCannedResponse)
-            .filter(WhatsAppInboxCannedResponse.organization_id == organization_id)
             .order_by(WhatsAppInboxCannedResponse.shortcut)
             .all()
         )
 
-    def search(self, organization_id: int, q: str) -> list[WhatsAppInboxCannedResponse]:
+    def search(self, q: str) -> list[WhatsAppInboxCannedResponse]:
         return (
             self.db.query(WhatsAppInboxCannedResponse)
-            .filter(WhatsAppInboxCannedResponse.organization_id == organization_id, WhatsAppInboxCannedResponse.shortcut.ilike(f"%{q}%"))
+            .filter(WhatsAppInboxCannedResponse.shortcut.ilike(f"%{q}%"))
             .order_by(WhatsAppInboxCannedResponse.shortcut)
             .limit(10)
             .all()
         )
 
-    def create(self, organization_id: int, **kwargs) -> WhatsAppInboxCannedResponse:
-        obj = WhatsAppInboxCannedResponse(organization_id=organization_id, **kwargs)
+    def create(self, **kwargs) -> WhatsAppInboxCannedResponse:
+        obj = WhatsAppInboxCannedResponse(**kwargs)
         self.db.add(obj)
         self.db.commit()
         self.db.refresh(obj)
@@ -151,16 +148,15 @@ class ScheduledMessageService:
     def __init__(self, db: Session):
         self.db = db
 
-    def list(self, organization_id: int) -> list[WhatsAppInboxScheduledMessage]:
+    def list(self) -> list[WhatsAppInboxScheduledMessage]:
         return (
             self.db.query(WhatsAppInboxScheduledMessage)
-            .filter(WhatsAppInboxScheduledMessage.organization_id == organization_id)
             .order_by(WhatsAppInboxScheduledMessage.scheduled_at)
             .all()
         )
 
-    def create(self, organization_id: int, **kwargs) -> WhatsAppInboxScheduledMessage:
-        obj = WhatsAppInboxScheduledMessage(organization_id=organization_id, **kwargs)
+    def create(self, **kwargs) -> WhatsAppInboxScheduledMessage:
+        obj = WhatsAppInboxScheduledMessage(**kwargs)
         self.db.add(obj)
         self.db.commit()
         self.db.refresh(obj)

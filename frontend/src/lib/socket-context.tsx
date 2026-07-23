@@ -12,9 +12,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useInboxStore } from "@/store/inbox-store";
 import type { Message, Reaction } from "./types";
 
-// Build the WebSocket base URL from the API URL env var.
-// http://localhost:8000  →  ws://localhost:8000
-// https://example.com   →  wss://example.com
 function buildWsBase(): string {
   const raw = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:8000";
   return raw
@@ -24,8 +21,6 @@ function buildWsBase(): string {
 }
 
 const WS_BASE = buildWsBase();
-const ORG_ID = "1"; // hardcoded until auth is wired
-
 const MIN_RETRY_MS = 2_000;
 const MAX_RETRY_MS = 30_000;
 
@@ -54,7 +49,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const connect = useCallback(() => {
     if (unmounted.current) return;
 
-    // Don't open a second socket if one is already open/connecting
     if (
       wsRef.current &&
       (wsRef.current.readyState === WebSocket.OPEN ||
@@ -63,7 +57,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const url = `${WS_BASE}/ws/${ORG_ID}`;
+    const token = typeof window !== "undefined" ? localStorage.getItem("jwt") : null;
+    const url = token ? `${WS_BASE}/ws?token=${token}` : `${WS_BASE}/ws`;
     console.log(`[WS] Connecting → ${url}`);
 
     let ws: WebSocket;
@@ -80,7 +75,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     ws.onopen = () => {
       console.log("[WS] ✅ Connected");
       setConnected(true);
-      retryDelay.current = MIN_RETRY_MS; // reset backoff
+      retryDelay.current = MIN_RETRY_MS;
     };
 
     ws.onclose = (ev) => {
@@ -91,7 +86,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     };
 
     ws.onerror = () => {
-      // onerror fires before onclose — just log, onclose handles retry
       console.warn(`[WS] Error on ${url} — will retry in ${retryDelay.current / 1000}s`);
     };
 
@@ -115,8 +109,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         };
         addMessage(message);
 
-        // Optimistically bump unread_count for conversations the user isn't
-        // currently viewing so the badge updates instantly (like real WhatsApp).
         const { activeConversationId, updateConversation, conversations } = useInboxStore.getState();
         const convId = String(message.conversation_id);
         if (message.sender_type === "CUSTOMER" && convId !== activeConversationId) {
@@ -127,7 +119,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             last_message_at: message.created_at,
           });
 
-          // Push a notification for the bell icon
           const conv = conversations.find(c => c.id === convId);
           addNotification({
             id: String(message.id),
@@ -141,8 +132,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             read: false,
           });
         }
-        queryClient.refetchQueries({ queryKey: ["conversations"] });
-        queryClient.refetchQueries({ queryKey: ["messages", String(message.conversation_id)] });
         return;
       }
 
@@ -151,10 +140,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         const metaId: string = data.meta_message_id ?? "";
         const dbId: string = String(data.message_id ?? "");
 
-        // Update store messages (real-time ones added via addMessage)
         updateMessageStatus(metaId || dbId, data.status as any);
 
-        // Update React Query infinite-query cache for this conversation
         if (convId) {
           queryClient.setQueryData(["messages", convId], (old: any) => {
             if (!old?.pages) return old;
@@ -164,7 +151,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
                 ...page,
                 items: page.items.map((m: Message) => {
                   const matchesMeta = metaId && m.meta_message_id === metaId;
-                  const matchesDb   = dbId   && String(m.id) === dbId;
+                  const matchesDb = dbId && String(m.id) === dbId;
                   return matchesMeta || matchesDb ? { ...m, status: data.status } : m;
                 }),
               })),
@@ -178,18 +165,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         const reaction = data.reaction as Reaction;
         if (reaction) {
           addReaction(reaction);
-          queryClient.invalidateQueries({ queryKey: ["messages"] });
         }
         return;
       }
 
       if (type === "message_deleted") {
-        // Soft-delete: flip is_deleted=true in store + query cache
         const convId = String(data.conversation_id ?? "");
-        const msgId  = String(data.message_id ?? "");
+        const msgId = String(data.message_id ?? "");
         if (!msgId) return;
 
-        // Update store messages (those added via addMessage)
         const { messages: storeMessages } = useInboxStore.getState();
         const updatedMessages: Record<string, any[]> = {};
         let changed = false;
@@ -201,7 +185,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         }
         if (changed) useInboxStore.setState({ messages: updatedMessages });
 
-        // Update React Query infinite-query cache
         if (convId) {
           queryClient.setQueryData(["messages", convId], (old: any) => {
             if (!old?.pages) return old;
@@ -220,7 +203,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (type === "conversation_update") {
-        // Real-time conversation status change (e.g. PENDING ↔ OPEN)
         const convId = String(data.conversation_id ?? "");
         if (convId) {
           const updates: Record<string, any> = {};
@@ -228,8 +210,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           if (Object.keys(updates).length > 0) {
             useInboxStore.getState().updateConversation(convId, updates);
           }
-          // Also refetch so the Waiting/All tabs get accurate counts
-          queryClient.refetchQueries({ queryKey: ["conversations"] });
         }
         return;
       }
@@ -241,14 +221,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         return;
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [addMessage, addNotification, addReaction, queryClient, setTyping, updateMessageStatus]);
 
   function scheduleRetry() {
     if (unmounted.current) return;
     if (retryTimer.current) clearTimeout(retryTimer.current);
     retryTimer.current = setTimeout(() => {
-      // Exponential backoff, capped at MAX_RETRY_MS
       retryDelay.current = Math.min(retryDelay.current * 1.5, MAX_RETRY_MS);
       connect();
     }, retryDelay.current);

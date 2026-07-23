@@ -10,17 +10,16 @@ class BroadcastService:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, organization_id: int, **kwargs) -> WhatsAppInboxBroadcast:
-        broadcast = WhatsAppInboxBroadcast(organization_id=organization_id, **kwargs)
+    def create(self, **kwargs) -> WhatsAppInboxBroadcast:
+        broadcast = WhatsAppInboxBroadcast(**kwargs)
         self.db.add(broadcast)
         self.db.commit()
         self.db.refresh(broadcast)
         return broadcast
 
-    def list(self, organization_id: int) -> list[WhatsAppInboxBroadcast]:
+    def list(self) -> list[WhatsAppInboxBroadcast]:
         return (
             self.db.query(WhatsAppInboxBroadcast)
-            .filter(WhatsAppInboxBroadcast.organization_id == organization_id)
             .order_by(WhatsAppInboxBroadcast.created_at.desc())
             .all()
         )
@@ -60,7 +59,6 @@ class BroadcastService:
         for phone in broadcast.recipients:
             try:
                 conv, _ = conv_svc.get_or_create(
-                    organization_id=broadcast.organization_id,
                     customer_phone=phone,
                     whatsapp_account_id=None,
                 )
