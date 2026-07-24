@@ -1,6 +1,19 @@
 "use client";
 import { BarChart3, TrendingUp, MessageSquare, CheckCircle, Users, Zap, Download, BarChart2 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer, CartesianGrid, LabelList } from "recharts";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
 import { useState, useEffect } from "react";
 import {
   getDashboardSummary,
@@ -11,6 +24,8 @@ import {
 import { getTemplates } from "../../services/templateService";
 
 const card = { background: "#ffffff", border: "1px solid #ece9f8", borderRadius: "14px", boxShadow: "0 1px 6px rgba(100,80,200,0.07)" };
+
+// Restored: Message Volume chart will render below in-place using summary data
 
 export default function ReportsPage() {
   const [summary, setSummary] = useState({
@@ -143,73 +158,9 @@ export default function ReportsPage() {
       {/* Chart + Campaign Performance */}
       <div className="grid xl:grid-cols-12 gap-5 items-stretch">
 
-        {/* Message Volume bar chart */}
         <div className="xl:col-span-8 p-5 flex flex-col" style={card}>
-          <div className="flex items-center justify-between mb-1">
-            <div>
-              <h3 className="font-semibold text-[15px]" style={{ color: "#1a1040" }}>Message Volume</h3>
-              <p className="text-xs mt-0.5" style={{ color: "#9390b5" }}>Breakdown by status</p>
-            </div>
-            <BarChart2 size={18} style={{ color: "#9390b5" }} />
-          </div>
-
-          {(() => {
-            const barData = [
-              { label: "Sent",      value: summary.sent,      fill: "#7c3aed" },
-              { label: "Delivered", value: summary.delivered, fill: "#10b981" },
-              { label: "Read",      value: summary.read,      fill: "#53bdeb" },
-              { label: "Failed",    value: summary.failed,    fill: "#f43f5e" },
-              { label: "Total",     value: summary.total_messages, fill: "#f59e0b" },
-            ];
-
-            const CustomTooltip = ({ active, payload }: any) => {
-              if (!active || !payload?.length) return null;
-              return (
-                <div style={{ background:"#fff", border:"1px solid #ece9f8", borderRadius:"10px", padding:"8px 14px", boxShadow:"0 4px 16px rgba(100,80,200,0.12)", fontSize:"12px" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:"8px" }}>
-                    <span style={{ width:8, height:8, borderRadius:"50%", background:payload[0].payload.fill, display:"inline-block" }} />
-                    <span style={{ color:"#4b4880", fontWeight:600 }}>{payload[0].payload.label}</span>
-                    <span style={{ fontWeight:700, color:"#1a1040", marginLeft:4 }}>{payload[0].value?.toLocaleString()}</span>
-                  </div>
-                </div>
-              );
-            };
-
-            return (
-              <div style={{ height: 260, flex: 1 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={barData}
-                    layout="vertical"
-                    margin={{ left: 0, right: 20, top: 8, bottom: 8 }}
-                  >
-                    <YAxis
-                      dataKey="label"
-                      type="category"
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={10}
-                      tick={{ fontSize: 13, fill: "#4b4880", fontWeight: 500 }}
-                      width={70}
-                    />
-                    <XAxis dataKey="value" type="number" hide />
-                    <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(124,58,237,0.05)" }} />
-                    <Bar dataKey="value" radius={5} maxBarSize={28}>
-                      {barData.map((entry, i) => (
-                        <Cell key={i} fill={entry.fill} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            );
-          })()}
-
-          {/* Footer */}
-          <div className="flex items-center gap-2 mt-3 text-xs" style={{ color: "#9390b5" }}>
-            <TrendingUp size={13} style={{ color: "#10b981" }} />
-            <span>Showing message delivery breakdown for all time</span>
-          </div>
+          {/* Message Volume replaced by mixed bar chart */}
+          <ChartBarMixed summary={summary} />
         </div>
 
         {/* Campaign Performance — replaces Top Templates */}
@@ -280,6 +231,75 @@ export default function ReportsPage() {
         ))}
       </div>
 
+    </div>
+  );
+}
+
+// New mixed bar chart component for Message Volume
+export const description = "A mixed bar chart";
+
+const APP_COLORS = {
+  sent: "#7c3aed", // purple
+  delivered: "#10b981", // green
+  read: "#53bdeb", // blue
+  failed: "#f43f5e", // red
+  total: "#f59e0b", // orange
+};
+
+const statusLabels = {
+  sent: "Sent",
+  delivered: "Delivered",
+  read: "Read",
+  failed: "Failed",
+  total: "Total",
+};
+
+export function ChartBarMixed({ summary }: { summary: any }) {
+  const data = [
+    { key: "sent", label: statusLabels.sent, value: summary.sent ?? 0, fill: APP_COLORS.sent },
+    { key: "delivered", label: statusLabels.delivered, value: summary.delivered ?? 0, fill: APP_COLORS.delivered },
+    { key: "read", label: statusLabels.read, value: summary.read ?? 0, fill: APP_COLORS.read },
+    { key: "failed", label: statusLabels.failed, value: summary.failed ?? 0, fill: APP_COLORS.failed },
+    { key: "total", label: statusLabels.total, value: summary.total_messages ?? 0, fill: APP_COLORS.total },
+  ];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <div>
+          <h3 className="font-semibold text-[15px]" style={{ color: "#1a1040" }}>Message Volume</h3>
+          <p className="text-xs mt-0.5" style={{ color: "#9390b5" }}>Breakdown by status</p>
+        </div>
+        <BarChart2 size={18} style={{ color: "#9390b5" }} />
+      </div>
+
+      <div style={{ height: 260 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} layout="vertical" margin={{ left: 0 }}>
+            <YAxis
+              dataKey="label"
+              type="category"
+              tickLine={false}
+              tickMargin={10}
+              axisLine={false}
+              tick={{ fontSize: 13, fill: "#4b4880", fontWeight: 500 }}
+              width={120}
+            />
+            <XAxis dataKey="value" type="number" hide />
+            <Tooltip cursor={false} formatter={(v: any) => (typeof v === 'number' ? v.toLocaleString() : v)} />
+            <Bar dataKey="value" radius={5} maxBarSize={28}>
+              {data.map((entry, i) => (
+                <Cell key={i} fill={entry.fill} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="flex items-center gap-2 mt-3 text-xs" style={{ color: "#9390b5" }}>
+        <TrendingUp size={13} style={{ color: APP_COLORS.delivered }} />
+        <span>Showing message delivery breakdown for all time</span>
+      </div>
     </div>
   );
 }

@@ -36,7 +36,7 @@ export function FilePreview({ file, mediaType, conversationId, onSent, onCancel 
       form.append("conversation_id", conversationId);
       form.append("message_type", mediaType.toUpperCase());
       if (caption) form.append("caption", caption);
-      const { data } = await api.post("/api/messages/send/media-upload", form);
+      const { data } = await api.post("/inbox/messages/send/media-upload", form);
       onSent(data as Message);
     } catch (e) {
       console.error("File send failed", e);

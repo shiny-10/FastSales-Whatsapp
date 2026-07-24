@@ -101,13 +101,13 @@ export default function TemplatesPage() {
   };
 
   const filtered = filterStatus === "all" ? templates
-    : templates.filter(t => (t.status || t.meta_status || "PENDING").toLowerCase() === filterStatus);
+    : templates.filter(t => (t.meta_status || t.status || "PENDING").toLowerCase() === filterStatus);
 
   const stats = {
     total:    templates.length,
-    approved: templates.filter(t => (t.status || t.meta_status || "").toUpperCase() === "APPROVED").length,
-    pending:  templates.filter(t => (t.status || t.meta_status || "").toUpperCase() === "PENDING").length,
-    rejected: templates.filter(t => (t.status || t.meta_status || "").toUpperCase() === "REJECTED").length,
+    approved: templates.filter(t => (t.meta_status || t.status || "").toUpperCase() === "APPROVED").length,
+    pending:  templates.filter(t => (t.meta_status || t.status || "").toUpperCase() === "PENDING").length,
+    rejected: templates.filter(t => (t.meta_status || t.status || "").toUpperCase() === "REJECTED").length,
   };
 
   const handleSave = async () => {
@@ -257,7 +257,7 @@ export default function TemplatesPage() {
                   <td><span className="font-semibold" style={{ color: "#1a1040" }}>{t.template_name}</span></td>
                   <td style={{ color: "#4b4880" }}>{t.category}</td>
                   <td style={{ color: "#4b4880" }}>{t.language}</td>
-                  <td><StatusBadge status={t.status || t.meta_status || "PENDING"} /></td>
+                  <td><StatusBadge status={t.meta_status || t.status || "PENDING"} /></td>
                   <td style={{ color: "#9390b5" }}>{t.created_at ? new Date(t.created_at).toLocaleDateString() : "—"}</td>
                   <td>
                     <div className="flex items-center justify-center gap-2">

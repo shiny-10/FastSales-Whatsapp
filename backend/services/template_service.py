@@ -1,6 +1,8 @@
 from __future__ import annotations
 from core.config import settings
+import re
 import requests
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from models.postgres_model import Template
 
@@ -110,6 +112,12 @@ def normalize_language(lang: str) -> str:
     return normalized if normalized else cleaned
 
 
+def normalize_name(name: str) -> str:
+    if not name:
+        return ""
+    return name.strip().lower().replace(" ", "_").replace("-", "_")
+
+
 def sync_all_templates_from_meta(db: Session) -> dict:
     from services.whatsapp_service import WhatsAppService
     account = WhatsAppService(db).get_account()
@@ -161,8 +169,11 @@ def sync_all_templates_from_meta(db: Session) -> dict:
             elif ctype == "BUTTONS":
                 buttons_list = comp.get("buttons", [])
 
+        sanitized_raw_name = normalize_name(raw_name)
         existing = db.query(Template).filter(
-            (Template.meta_template_id == meta_id) | (Template.template_name == raw_name)
+            (Template.meta_template_id == meta_id) |
+            (func.lower(Template.template_name) == func.lower(raw_name)) |
+            (func.replace(func.replace(func.lower(Template.template_name), ' ', '_'), '-', '_') == sanitized_raw_name)
         ).first()
 
         if existing:

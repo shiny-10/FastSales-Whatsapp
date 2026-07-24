@@ -37,6 +37,8 @@ export function VoiceRecorder({ conversationId, onSent, onCancel }: VoiceRecorde
   const [blob, setBlob] = useState<Blob | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [previewUrl, setPreviewUrl] = useState<string>("");
+  const previewUrlRef = useRef<string>("");
 
   const mediaRef   = useRef<MediaRecorder | null>(null);
   const chunksRef  = useRef<Blob[]>([]);
@@ -60,7 +62,10 @@ export function VoiceRecorder({ conversationId, onSent, onCancel }: VoiceRecorde
       mr.onstop = () => {
         const recordedMime = mimeType || "audio/webm";
         const b = new Blob(chunksRef.current, { type: recordedMime });
+        const url = URL.createObjectURL(b);
         setBlob(b);
+        setPreviewUrl(url);
+        previewUrlRef.current = url;
         setPhase("preview");
         stream.getTracks().forEach((t) => t.stop());
       };
@@ -79,8 +84,8 @@ export function VoiceRecorder({ conversationId, onSent, onCancel }: VoiceRecorde
     return () => {
       clearTimeout(t);
       if (timerRef.current) clearInterval(timerRef.current);
-      // Clean up stream if component unmounts mid-recording
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     };
   }, [startRecording]);
 
@@ -94,23 +99,27 @@ export function VoiceRecorder({ conversationId, onSent, onCancel }: VoiceRecorde
     setSending(true);
     try {
       const mimeType = blob.type || "audio/ogg";
-      // Map to Meta-accepted format
       let ext = "ogg";
-      let sendMime = "audio/ogg";
+      let sendMime = mimeType;
       if (mimeType.includes("mp4")) { ext = "mp4"; sendMime = "audio/mp4"; }
       else if (mimeType.includes("mpeg") || mimeType.includes("mp3")) { ext = "mp3"; sendMime = "audio/mpeg"; }
       else if (mimeType.includes("aac")) { ext = "aac"; sendMime = "audio/aac"; }
       else if (mimeType.includes("amr")) { ext = "amr"; sendMime = "audio/amr"; }
-      // For webm, try sending as ogg since Meta doesn't support webm audio directly
-      else if (mimeType.includes("webm")) { ext = "ogg"; sendMime = "audio/ogg"; }
+      else if (mimeType.includes("webm")) { ext = "webm"; sendMime = "audio/webm"; }
+      else if (mimeType.includes("ogg")) { ext = "ogg"; sendMime = "audio/ogg"; }
 
-      const sendBlob = new Blob([blob], { type: sendMime });
+      const sendBlob = sendMime === blob.type ? blob : new Blob([blob], { type: sendMime });
       const form = new FormData();
       form.append("file", sendBlob, `voice.${ext}`);
       form.append("conversation_id", conversationId);
       form.append("message_type", "AUDIO");
-      const { data } = await api.post("/api/messages/send/media-upload", form);
+      const { data } = await api.post("/inbox/messages/send/media-upload", form);
       onSent(data as Message);
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+        previewUrlRef.current = "";
+        setPreviewUrl("");
+      }
     } catch (err: any) {
       const detail = err?.response?.data?.detail ?? err?.message ?? "Failed to send voice note";
       console.error("Voice send error:", err?.response?.data ?? err);
@@ -122,6 +131,11 @@ export function VoiceRecorder({ conversationId, onSent, onCancel }: VoiceRecorde
   const handleDelete = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     streamRef.current?.getTracks().forEach((t) => t.stop());
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = "";
+      setPreviewUrl("");
+    }
     onCancel();
   };
 
@@ -143,7 +157,7 @@ export function VoiceRecorder({ conversationId, onSent, onCancel }: VoiceRecorde
       <button
         type="button"
         onClick={handleDelete}
-        className="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0 transition-colors"
+        className="flex items-center justify-center w-9 h-9 rounded-xl shrink-0 transition-colors"
         style={{ background: "#f5f6fa", color: "#f43f5e" }}
         onMouseEnter={e => (e.currentTarget.style.background = "rgba(239,68,68,0.1)")}
         onMouseLeave={e => (e.currentTarget.style.background = "#f5f6fa")}
@@ -159,10 +173,10 @@ export function VoiceRecorder({ conversationId, onSent, onCancel }: VoiceRecorde
       >
         {/* Recording dot */}
         {phase === "recording" && (
-          <span className="w-2 h-2 rounded-full flex-shrink-0 animate-pulse" style={{ background: "#f43f5e" }} />
+          <span className="w-2 h-2 rounded-full shrink-0 animate-pulse" style={{ background: "#f43f5e" }} />
         )}
         {phase === "preview" && (
-          <Mic className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "#7c3aed" }} />
+          <Mic className="h-3.5 w-3.5 shrink-0" style={{ color: "#7c3aed" }} />
         )}
 
         {/* Timer */}
@@ -190,18 +204,23 @@ export function VoiceRecorder({ conversationId, onSent, onCancel }: VoiceRecorde
         </div>
 
         {/* Status text */}
-        <span className="text-[11px] flex-shrink-0 font-medium"
+        <span className="text-[11px] shrink-0 font-medium"
           style={{ color: phase === "recording" ? "#f43f5e" : "#9498b0" }}>
-          {phase === "recording" ? "Recording…" : "Ready"}
+          {phase === "recording" ? "Recording…" : "Preview"}
         </span>
       </div>
+
+      {/* Preview audio */}
+      {phase === "preview" && previewUrl && (
+        <audio controls className="max-w-50 h-10" style={{ accentColor: "#7c3aed" }} src={previewUrl} />
+      )}
 
       {/* Stop (while recording) or Send (after stop) */}
       {phase === "recording" ? (
         <button
           type="button"
           onClick={stopRecording}
-          className="flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-all"
+          className="flex items-center justify-center w-10 h-10 rounded-xl shrink-0 transition-all"
           style={{ background: "rgba(239,68,68,0.12)", color: "#f43f5e", border: "1.5px solid rgba(239,68,68,0.3)" }}
           title="Stop recording"
         >
@@ -212,7 +231,7 @@ export function VoiceRecorder({ conversationId, onSent, onCancel }: VoiceRecorde
           type="button"
           onClick={handleSend}
           disabled={sending}
-          className="flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-all disabled:opacity-60"
+          className="flex items-center justify-center w-10 h-10 rounded-xl shrink-0 transition-all disabled:opacity-60"
           style={{ background: "linear-gradient(135deg,#7c3aed,#4f46e5)", color: "#ffffff", boxShadow: "0 4px 14px rgba(124,58,237,0.4)" }}
           title="Send voice note"
         >
@@ -231,7 +250,7 @@ export function VoiceMicButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-all"
+      className="flex items-center justify-center w-10 h-10 rounded-xl shrink-0 transition-all"
       style={{
         background: "linear-gradient(135deg,#7c3aed,#4f46e5)",
         color: "#ffffff",

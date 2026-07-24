@@ -69,8 +69,16 @@ def send_message(
             "meta_response": result,
         }
 
+    meta_msg_id = None
+    if isinstance(result, dict):
+        meta_msg_id = (
+            result.get("messages", [{}])[0].get("id")
+            if isinstance(result.get("messages"), list)
+            else result.get("id")
+        )
+
     msg_log = MessageLog(
-        message_id=(result.get("id") if isinstance(result, dict) else None),
+        message_id=meta_msg_id,
         phone_number=data.to,
         text=data.template_name,
         direction="outgoing",
@@ -84,10 +92,11 @@ def send_message(
     try:
         clean_phone = data.to.replace("+", "").replace(" ", "").replace("-", "").strip()
         from services.conversation_service import ConversationService
-        from models.postgres_model import WhatsAppInboxMessage
+        from models.postgres_model import WhatsAppInboxMessage, Contact
         from services import socket_service
         from schemas.whatsapp_inbox import MessageResponse
 
+        contact = db.query(Contact).filter(Contact.phone_number == data.to).first()
         conv_svc = ConversationService(db)
         inbox_conv, _ = conv_svc.get_or_create(
             customer_phone=clean_phone,
@@ -95,7 +104,6 @@ def send_message(
             whatsapp_account_id=account.id,
         )
 
-        meta_msg_id = result.get("id") if isinstance(result, dict) else None
         template_body_text = tmpl.template_body if (tmpl and tmpl.template_body) else f"[Template: {data.template_name}]"
 
         inbox_msg = WhatsAppInboxMessage(
@@ -120,7 +128,17 @@ def send_message(
     except Exception as e:
         print(f"[send_message] Error creating inbox message record: {e}")
 
-    return {"success": True, "result": result, "message_id": msg_log.id}
+    response_payload = {
+        "success": True,
+        "result": result,
+        "message_id": msg_log.id,
+    }
+    try:
+        response_payload["message"] = MessageResponse.model_validate(inbox_msg).model_dump(mode="json")
+    except Exception:
+        pass
+
+    return response_payload
 
 
 @router.post("/connect")

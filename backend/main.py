@@ -40,6 +40,7 @@ app.add_middleware(
         "ws://127.0.0.1:8000",
         "http://localhost",
         "http://127.0.0.1",
+        "null",
         *settings.CORS_ORIGINS,
     ],
     allow_origin_regex=r"^(https?|wss?)://(localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.[0-9]{1,3}\.[0-9]{1,3})(:(\d+))?$",
@@ -49,7 +50,10 @@ app.add_middleware(
 )
 
 # ─── Bootstrap DB schema on startup ───────────────────────────────────────────
-bootstrap_schema()
+try:
+    bootstrap_schema()
+except Exception as exc:
+    print(f"[startup] Warning: schema bootstrap failed, continuing: {exc}")
 
 # ─── Register Routers ──────────────────────────────────────────────────────────
 app.include_router(dashboard_router,          prefix="/api/dashboard",      tags=["Dashboard"])

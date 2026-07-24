@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from core.database import SessionLocal
 from models.postgres_model import ActivityLog, Template
 from routes.deps import get_current_user
-from services.template_service import MetaTemplateService
+from services.template_service import MetaTemplateService, sync_all_templates_from_meta
 
 meta_template_service = MetaTemplateService()
 
@@ -173,6 +173,7 @@ def get_templates(
         templates = db.query(Template).all()
         result = []
         for t in templates:
+            display_status = t.meta_status if t.meta_template_id else (t.status or "PENDING")
             result.append({
                 "id": t.id,
                 "template_name": t.template_name,
@@ -184,7 +185,9 @@ def get_templates(
                 "template_body": t.template_body,
                 "footer": t.footer,
                 "buttons": t.buttons or [],
-                "status": t.meta_status or "PENDING",
+                "status": display_status,
+                "meta_template_id": t.meta_template_id,
+                "meta_template_name": t.meta_template_name,
                 "created_at": t.created_at.isoformat() + "Z" if t.created_at else None,
                 "meta_status": t.meta_status or "PENDING",
             })

@@ -10,18 +10,19 @@ import type { Message, MessageListResponse, MessageReactionsResponse, Reaction }
 export function useMessages(conversationId: string | null) {
   return useInfiniteQuery<MessageListResponse>({
     queryKey: ["messages", conversationId],
-    queryFn: async ({ pageParam }) => {
-      const params: Record<string, string> = {};
-      if (pageParam) params.before = pageParam as string;
+    queryFn: async ({ pageParam = 1 }) => {
+      const params: Record<string, string | number> = {
+        page: pageParam,
+      };
       const { data } = await api.get(
         `/inbox/conversations/${conversationId}/messages`,
         { params }
       );
       return data;
     },
-    getNextPageParam: (lastPage) =>
-      lastPage.has_more ? lastPage.cursor : undefined,
-    initialPageParam: undefined,
+    getNextPageParam: (lastPage, pages) =>
+      lastPage.has_more ? pages.length + 1 : undefined,
+    initialPageParam: 1,
     enabled: !!conversationId,
   });
 }

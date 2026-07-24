@@ -302,7 +302,7 @@ export function MessageBubble({
           </div>
         )}
 
-        <div className={cn("max-w-[72%] relative", isCurrentMatch && "ring-2 ring-violet-300 rounded-2xl")}>
+        <div className={cn("max-w-[84%] relative", isCurrentMatch && "ring-2 ring-violet-300 rounded-2xl")}>
           {/* Bubble */}
           <div
             ref={bubbleRef}
@@ -328,8 +328,8 @@ export function MessageBubble({
             }}
           >
             {/* Tail */}
-            <span className={cn("absolute bottom-0 w-3 h-3 overflow-hidden", isAgent ? "-right-1.5" : "-left-1.5")}>
-              <svg viewBox="0 0 10 10" className="w-3 h-3" style={{ fill: isAgent ? "#4f46e5" : "#ffffff" }}>
+            <span className={cn("absolute bottom-0 w-3.5 h-3.5 overflow-hidden", isAgent ? "-right-2" : "-left-2")}>
+              <svg viewBox="0 0 10 10" className="w-3.5 h-3.5" style={{ fill: isAgent ? "#dcf8c6" : "#ffffff" }}>
                 {isAgent ? <path d="M10 10 L0 10 L10 0 Z" /> : <path d="M0 10 L10 10 L0 0 Z" />}
               </svg>
             </span>

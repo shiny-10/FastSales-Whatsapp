@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -92,7 +92,7 @@ def create_scheduled_message(
     except ValueError:
         raise HTTPException(status_code=400, detail="scheduled_at must be a valid ISO8601 datetime")
 
-    if scheduled_at <= datetime.utcnow():
+    if scheduled_at <= datetime.utcnow() - timedelta(seconds=1):
         raise HTTPException(status_code=400, detail="scheduled_at must be in the future")
 
     if message_type == "TEXT" and not content:
@@ -123,7 +123,7 @@ def create_scheduled_message(
         db.commit()
         db.refresh(conv)
 
-    display_content = content
+    stored_content: str | None = content if message_type == "TEXT" else None
     if message_type == "TEMPLATE" and template_name:
         tmpl = (
             db.query(Template)
@@ -132,14 +132,16 @@ def create_scheduled_message(
             .first()
         )
         if tmpl and tmpl.template_body:
-            display_content = tmpl.template_body
+            # Keep the template name for later sending; do not save the
+            # rendered body as the scheduled message content.
+            stored_content = None
 
     agent_id = user.get("id", 1)
     msg = WhatsAppInboxScheduledMessage(
         conversation_id=conv.id,
         agent_id=agent_id,
         message_type=message_type,
-        content=display_content,
+        content=stored_content,
         template_name=template_name,
         scheduled_at=scheduled_at,
         status="PENDING",

@@ -88,17 +88,32 @@ export const useInboxStore = create<InboxState>()((set, get) => ({
     })),
   addMessage: (message) =>
     set((state) => {
-      const existing = state.messages[message.conversation_id] ?? [];
+      const convId = String(message.conversation_id);
+      const existing = state.messages[convId] ?? [];
       // Normalise id to string to avoid "9" vs 9 duplicate key issues
       const msgId = String(message.id);
-      const convId = String(message.conversation_id);
-      const hasDuplicate = existing.some((m) => String(m.id) === msgId);
+      const messageMetaId = message.meta_message_id ? String(message.meta_message_id) : null;
+      const existingIndex = existing.findIndex(
+        (m) =>
+          String(m.id) === msgId ||
+          (messageMetaId && m.meta_message_id && String(m.meta_message_id) === messageMetaId)
+      );
+
+      if (existingIndex >= 0) {
+        const updated = [...existing];
+        updated[existingIndex] = { ...updated[existingIndex], ...message };
+        return {
+          messages: {
+            ...state.messages,
+            [convId]: updated,
+          },
+        };
+      }
+
       return {
         messages: {
           ...state.messages,
-          [convId]: hasDuplicate
-            ? existing.map((m) => (String(m.id) === msgId ? message : m))
-            : [...existing, message],
+          [convId]: [...existing, message],
         },
       };
     }),

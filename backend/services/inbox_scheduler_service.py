@@ -17,14 +17,19 @@ def process_due_messages() -> None:
     now = datetime.utcnow()
     db = SessionLocal()
     try:
-        due = (
+        # Use row-level locking to avoid multiple workers processing the same
+        # scheduled message concurrently. `SKIP LOCKED` ensures that rows
+        # already claimed by another transaction are not returned.
+        due_query = (
             db.query(WhatsAppInboxScheduledMessage)
             .filter(
                 WhatsAppInboxScheduledMessage.status == "PENDING",
                 WhatsAppInboxScheduledMessage.scheduled_at <= now,
             )
-            .all()
+            .with_for_update(skip_locked=True)
         )
+
+        due = due_query.all()
         if not due:
             return
 
@@ -51,7 +56,7 @@ def process_due_messages() -> None:
                         conversation_id=msg.conversation_id,
                         template_name=msg.template_name,
                         language_code="en_US",
-                        components=msg.components if msg.components else None,
+                        components=getattr(msg, "components", None),
                     )
                     reply = svc.send_template_message(
                         req,
@@ -77,18 +82,22 @@ def process_due_messages() -> None:
                 )
 
                 msg.status = "SENT"
+                db.commit()
                 print(
                     f"[scheduler] ✓ Sent scheduled msg id={msg.id} "
                     f"conv={msg.conversation_id} type={message_type}"
                 )
-
             except Exception as exc:
-                msg.status = "FAILED"
+                try:
+                    msg.status = "FAILED"
+                    db.commit()
+                except Exception:
+                    db.rollback()
                 print(
                     f"[scheduler] ✗ Failed scheduled msg id={msg.id}: {exc}"
                 )
 
-        db.commit()
+        # Don't commit the entire batch at once. Individual message commits help avoid duplicate retries
 
     except Exception as exc:
         print(f"[scheduler] Error in process_due_messages: {exc}")

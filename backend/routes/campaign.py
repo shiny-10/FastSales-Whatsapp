@@ -58,7 +58,7 @@ def create_campaign(
     campaign = Campaign(
         campaign_name=data.campaign_name,
         template_id=data.template_id,
-        status="scheduled" if data.schedule_time else "running",
+        status="scheduled" if data.schedule_time else "completed",
         schedule_time=datetime.fromisoformat(data.schedule_time) if data.schedule_time else None,
     )
 
@@ -66,86 +66,17 @@ def create_campaign(
     db.commit()
     db.refresh(campaign)
 
-    if data.schedule_time:
-        for contact_id in data.contact_ids:
-            campaign_contact = CampaignContact(campaign_id=campaign.id, contact_id=contact_id)
-            db.add(campaign_contact)
-        db.commit()
-        return {
-            "success": True,
-            "campaign_id": campaign.id,
-            "message": "Campaign scheduled successfully",
-        }
-
-    results = []
-    try:
-        meta = _meta_service(db)
-    except ValueError as e:
-        return {"success": False, "error": str(e)}
-
     for contact_id in data.contact_ids:
-        contact = db.query(Contact).filter(Contact.id == contact_id).first()
-        if not contact:
-            continue
-
-        existing_cc = db.query(CampaignContact).filter(
-            CampaignContact.campaign_id == campaign.id,
-            CampaignContact.contact_id == contact_id,
-        ).first()
-        if not existing_cc:
-            db.add(CampaignContact(campaign_id=campaign.id, contact_id=contact_id))
-
-        phone = contact.phone_number
-        message_text = template.template_body or ""
-        message_text = message_text.replace("{{name}}", contact.name or "")
-
-        result = meta.send_template_message(
-            phone,
-            template.template_name,
-            language_code=template.language or "en_US",
-        )
-
-        message_id = None
-        if result.get("messages"):
-            message_id = result["messages"][0].get("id")
-
-        msg = MessageLog(
-            message_id=message_id,
-            phone_number=phone,
-            text=message_text,
-            direction="outgoing",
-            status="sent",
-        )
-        db.add(msg)
-
-        rec = CampaignRecipient(
-            campaign_id=campaign.id,
-            phone_number=phone,
-            contact_id=contact.id,
-            status="sent",
-            message_id=message_id,
-        )
-        db.add(rec)
-
-        # ── Record to WhatsApp Inbox for live inbox & incoming reply tracking ──
-        try:
-            from services.conversation_service import ConversationService
-            ConversationService(db).record_outgoing_inbox_message(
-                customer_phone=phone,
-                content=message_text,
-                message_type="TEMPLATE",
-                meta_message_id=message_id,
-                customer_name=contact.name if contact else None,
-            )
-        except Exception as e:
-            print(f"[create_campaign] Error recording to inbox: {e}")
-
-        results.append({"contact_id": contact.id, "phone": phone, "message_id": message_id})
-
-    campaign.status = "completed"
+        campaign_contact = CampaignContact(campaign_id=campaign.id, contact_id=contact_id)
+        db.add(campaign_contact)
     db.commit()
 
-    return {"success": True, "campaign_id": campaign.id, "results": results}
+    return {
+        "success": True,
+        "campaign_id": campaign.id,
+        "message": "Campaign created successfully" if not data.schedule_time else "Campaign scheduled successfully",
+        "campaign_status": campaign.status,
+    }
 
 
 @router.get("/details/{campaign_id}")

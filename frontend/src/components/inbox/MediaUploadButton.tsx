@@ -219,7 +219,7 @@ export function MediaUploadButton({ conversationId, onSent, onPreview }: MediaUp
       form.append("file", file);
       form.append("conversation_id", conversationId);
       form.append("message_type", pendingType.toUpperCase());
-      const { data } = await api.post("/api/messages/send/media-upload", form);
+      const { data } = await api.post("/inbox/messages/send/media-upload", form);
       onSent?.(data as Message);
     } catch (err) {
       console.error("Media upload failed:", err);

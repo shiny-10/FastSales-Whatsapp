@@ -116,7 +116,6 @@ class CampaignRecipient(Base):
     contact = relationship("Contact", back_populates="campaign_recipients")
 
     __table_args__ = (
-        Index("ix_campaign_recipients_campaign_id", "campaign_id"),
         Index("ix_campaign_recipients_status", "status"),
     )
 

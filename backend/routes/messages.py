@@ -177,6 +177,14 @@ async def send_media_upload(
     if not meta_media_id:
         raise HTTPException(status_code=502, detail="Media upload to Meta failed")
 
+    # Optional: resolve the Meta media download URL so the UI can display media immediately.
+    media_url = ""
+    try:
+        svc = MediaService(db)
+        media_url = svc.get_meta_media_url(meta_media_id, wa.access_token)
+    except Exception:
+        media_url = ""
+
     # Step 2: Send message via Meta
     type_key = message_type.lower()
     media_payload: dict = {"id": meta_media_id}
@@ -221,7 +229,7 @@ async def send_media_upload(
         message_id=msg.id,
         media_id=meta_media_id,
         file_name=filename,
-        file_url=None,
+        file_url=media_url,
         mime_type=mime_type,
         file_size=len(file_bytes),
     )
@@ -248,7 +256,7 @@ async def send_media_upload(
             "id": str(media_file.id),
             "media_id": meta_media_id,
             "file_name": filename,
-            "file_url": None,
+            "file_url": media_url,
             "mime_type": mime_type,
             "file_size": len(file_bytes),
         }],
@@ -272,7 +280,7 @@ async def send_media_upload(
             "id": str(media_file.id),
             "media_id": meta_media_id,
             "file_name": filename,
-            "file_url": None,
+            "file_url": media_url,
             "mime_type": mime_type,
             "file_size": len(file_bytes),
         }],
@@ -438,14 +446,6 @@ def get_signed_media_url(
     ).first()
     if not mf:
         raise HTTPException(status_code=404, detail="Media file not found")
-
-    if mf.s3_key:
-        try:
-            svc = MediaService(db)
-            signed = svc.generate_signed_url(mf.s3_key)
-            return {"signed_url": signed, "expires_in": 3600}
-        except Exception:
-            pass
 
     if mf.file_url and mf.file_url.startswith("http"):
         return {"signed_url": mf.file_url, "expires_in": 86400}

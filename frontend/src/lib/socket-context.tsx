@@ -13,11 +13,21 @@ import { useInboxStore } from "@/store/inbox-store";
 import type { Message, Reaction } from "./types";
 
 function buildWsBase(): string {
-  const raw = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:8000";
-  return raw
-    .replace(/^https:\/\//, "wss://")
-    .replace(/^http:\/\//, "ws://")
-    .replace(/\/$/, "");
+  const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL?.trim();
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE?.trim() || process.env.NEXT_PUBLIC_API_URL?.trim();
+
+  let raw = socketUrl || apiBase || "http://localhost:8000";
+  raw = raw.replace(/\/$/, "");
+
+  if (/^wss?:\/\//.test(raw)) {
+    return raw;
+  }
+
+  if (/^https?:\/\//.test(raw)) {
+    return raw.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://");
+  }
+
+  return `ws://${raw}`;
 }
 
 const WS_BASE = buildWsBase();
@@ -44,7 +54,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   const [connected, setConnected] = useState(false);
   const queryClient = useQueryClient();
-  const { addMessage, updateMessageStatus, addReaction, setTyping, addNotification } = useInboxStore();
+  const { addMessage, updateMessageStatus, addReaction, setTyping, addNotification, setActiveConversation } = useInboxStore();
 
   const connect = useCallback(() => {
     if (unmounted.current) return;
@@ -131,6 +141,37 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             receivedAt: message.created_at,
             read: false,
           });
+
+          // Native browser notification
+          try {
+            if (typeof window !== "undefined" && "Notification" in window) {
+              const showNotif = () => {
+                try {
+                  const title = conv?.customer_name ?? conv?.customer_phone ?? "New message";
+                  const body = message.content ? message.content.slice(0, 140) : `[${(message.message_type || "message").toLowerCase()}]`;
+                  const tag = (message.meta_message_id ?? String(message.id));
+                  const n = new Notification(title, { body, tag, renotify: true });
+                  n.onclick = () => {
+                    try {
+                      window.focus();
+                      setActiveConversation(convId);
+                      // attempt to navigate to inbox if route exists
+                      if (window.location.pathname !== "/whatsapp/inbox") window.location.href = "/whatsapp/inbox";
+                    } catch (e) {}
+                    try { n.close(); } catch (e) {}
+                  };
+                } catch (e) {}
+              };
+
+              if (Notification.permission === "granted") {
+                showNotif();
+              } else if (Notification.permission !== "denied") {
+                Notification.requestPermission().then((perm) => {
+                  if (perm === "granted") showNotif();
+                }).catch(() => {});
+              }
+            }
+          } catch (e) {}
         }
         return;
       }

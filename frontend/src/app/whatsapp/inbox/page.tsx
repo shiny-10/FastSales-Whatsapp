@@ -117,7 +117,7 @@ export default function InboxPage() {
 ───────────────────────────────────────────── */
 function SendMessagePanel({ onConversationReady }: { onConversationReady: (id: string) => void }) {
   const [contacts, setContacts] = useState<{ id: string | number; name: string; phone_number: string }[]>([]);
-  const [templates, setTemplates] = useState<{ id: string | number; template_name: string; meta_status?: string; template_body?: string }[]>([]);
+  const [templates, setTemplates] = useState<{ id: string | number; template_name: string; status?: string; meta_status?: string; template_body?: string }[]>([]);
   const [selectedContact, setSelectedContact] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [loading, setLoading] = useState(false);
@@ -132,7 +132,7 @@ function SendMessagePanel({ onConversationReady }: { onConversationReady: (id: s
       setContacts(items);
     }).catch(() => {});
     getTemplates().then((res) => {
-      const items: { id: string | number; template_name: string; meta_status?: string; template_body?: string }[] =
+      const items: { id: string | number; template_name: string; status?: string; meta_status?: string; template_body?: string }[] =
         Array.isArray(res) ? res : res?.templates ?? res?.items ?? [];
       setTemplates(items.filter((t) => t.meta_status === "APPROVED"));
     }).catch(() => {});
@@ -376,7 +376,7 @@ type ScheduledMsg = {
 
 function ScheduleMessagePanel() {
   const [contacts, setContacts] = useState<{ id: string | number; name: string; phone_number: string }[]>([]);
-  const [templates, setTemplates] = useState<{ id: string | number; template_name: string; meta_status?: string }[]>([]);
+  const [templates, setTemplates] = useState<{ id: string | number; template_name: string; status?: string; meta_status?: string }[]>([]);
   const [selectedContact, setSelectedContact] = useState("");
   const [messageType, setMessageType] = useState<"TEXT" | "TEMPLATE">("TEXT");
   const [textContent, setTextContent] = useState("");
@@ -387,6 +387,15 @@ function ScheduleMessagePanel() {
   const [scheduled, setScheduled] = useState<ScheduledMsg[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const formatLocalDateTime = (date: Date) => {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+      date.getHours()
+    )}:${pad(date.getMinutes())}`;
+  };
+
+  const minScheduleDateTime = formatLocalDateTime(new Date(Date.now() + 120_000));
 
   // Load contacts + approved templates + existing scheduled messages
   useEffect(() => {
@@ -428,6 +437,12 @@ function ScheduleMessagePanel() {
     setStatus(null);
 
     try {
+      const scheduledTimestamp = new Date(scheduledAt).getTime();
+      if (scheduledTimestamp <= Date.now() + 5000) {
+        setStatus({ msg: "Please choose a time at least a few seconds in the future.", ok: false });
+        return;
+      }
+
       const { data } = await api.post("/inbox/scheduled-messages", {
         customer_phone: contact.phone_number,
         customer_name: contact.name,
@@ -586,7 +601,7 @@ function ScheduleMessagePanel() {
           <input
             type="datetime-local"
             value={scheduledAt}
-            min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+            min={minScheduleDateTime}
             onChange={(e) => setScheduledAt(e.target.value)}
             className="focus:outline-none"
             style={{ ...inputStyle, paddingLeft: "28px" }}
@@ -678,7 +693,9 @@ function ScheduleMessagePanel() {
                         className="text-[10px] truncate mt-0.5"
                         style={{ color: "#9390b5" }}
                       >
-                        {msg.content ?? msg.template_name ?? "—"}
+                        {msg.message_type === "TEMPLATE"
+                          ? msg.template_name ?? msg.content ?? "—"
+                          : msg.content ?? msg.template_name ?? "—"}
                       </p>
                       <p
                         className="text-[10px] mt-0.5 flex items-center gap-1"

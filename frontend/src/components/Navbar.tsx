@@ -280,13 +280,33 @@ function NotificationBell() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const handleOpen = () => {
-    setOpen((v) => !v);
-    if (!open) markAllNotificationsRead();
+  const handleOpen = async () => {
+    const willOpen = !open;
+    setOpen(willOpen);
+    if (willOpen) {
+      try {
+        // Mark corresponding conversations read on the server
+        const convIds = Array.from(new Set(notifications.map((n) => n.conversationId)));
+        await Promise.all(
+          convIds.map((id) => api.post(`/inbox/conversations/${id}/read`).catch(() => {}))
+        );
+      } catch (e) {
+        // ignore
+      }
+      // Update local state
+      markAllNotificationsRead();
+    }
   };
 
-  const handleNotificationClick = (n: typeof notifications[0]) => {
+  const handleNotificationClick = async (n: typeof notifications[0]) => {
     setOpen(false);
+    try {
+      await api.post(`/inbox/conversations/${n.conversationId}/read`).catch(() => {});
+    } catch (e) {
+      // ignore
+    }
+    // Mark UI notifications as read
+    markAllNotificationsRead();
     setActiveConversation(n.conversationId);
     router.push("/whatsapp/inbox");
   };
@@ -346,7 +366,14 @@ function NotificationBell() {
                 <>
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); markAllNotificationsRead(); }}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        const convIds = Array.from(new Set(notifications.map((n) => n.conversationId)));
+                        await Promise.all(convIds.map((id) => api.post(`/inbox/conversations/${id}/read`).catch(() => {})));
+                      } catch (err) {}
+                      markAllNotificationsRead();
+                    }}
                     className="text-[11px] flex items-center gap-1 transition-colors"
                     style={{ color: "#7c3aed" }}
                     title="Mark all read"

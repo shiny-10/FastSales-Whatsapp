@@ -1,6 +1,7 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
+import re
 
 import httpx
 from fastapi import HTTPException, status
@@ -32,8 +33,11 @@ class MessageService:
 
     @staticmethod
     def _normalize_phone(phone: str) -> str:
-        """Strip +, spaces and dashes — Meta requires E.164 without the plus sign."""
-        return phone.replace("+", "").replace(" ", "").replace("-", "").strip()
+        """Strip everything except digits so Meta receives a clean phone number."""
+        if not phone:
+            return ""
+        digits = re.sub(r"\D", "", phone)
+        return digits.strip()
 
     def _post_to_meta(
         self, phone_number_id: str, access_token: str, payload: dict
@@ -449,6 +453,44 @@ class MessageRepository:
         )
 
     def create(self, **kwargs) -> WhatsAppInboxMessage:
+        # Defensive dedupe: if meta_message_id provided and already exists,
+        # return the existing message to avoid duplicate inserts.
+        meta_id = kwargs.get("meta_message_id")
+        conv_id = kwargs.get("conversation_id")
+        content = kwargs.get("content")
+        if meta_id:
+            existing = self.get_by_meta_id(meta_id)
+            if existing:
+                return existing
+
+        # If no meta id, guard against near-duplicate agent messages
+        # (same conversation, same content within short window).
+        try:
+            if conv_id and content is not None:
+                # Use a slightly larger dedupe window for agent TEXT messages
+                # to protect against scheduler retries, webhook replays, or
+                # race conditions that may create the same message a few
+                # seconds apart. Keep this limited to text/agent sends only.
+                message_type = kwargs.get("message_type", "TEXT")
+                if kwargs.get("sender_type") == "AGENT" and message_type == "TEXT":
+                    window_start = datetime.utcnow() - timedelta(seconds=120)
+                else:
+                    window_start = datetime.utcnow() - timedelta(seconds=5)
+
+                recent = (
+                    self.db.query(WhatsAppInboxMessage)
+                    .filter(WhatsAppInboxMessage.conversation_id == conv_id)
+                    .filter(WhatsAppInboxMessage.sender_type == "AGENT")
+                    .filter(WhatsAppInboxMessage.content == content)
+                    .filter(WhatsAppInboxMessage.created_at >= window_start)
+                    .first()
+                )
+                if recent:
+                    return recent
+        except Exception:
+            # On any DB error, fall back to normal create
+            pass
+
         message = WhatsAppInboxMessage(**kwargs)
         self.db.add(message)
         self.db.commit()
